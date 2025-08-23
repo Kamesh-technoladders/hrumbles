@@ -1610,6 +1610,7 @@ import {
   TooltipTrigger,
 } from "@/components/jobs/ui/tooltip";
 import { StatusSelector } from "./StatusSelector";
+import { ItechStatusSelector } from "./ItechStatusSelector";
 import ValidateResumeButton from "./candidate/ValidateResumeButton";
 import StageProgress from "./candidate/StageProgress";
 import EmptyState from "./candidate/EmptyState";
@@ -1650,6 +1651,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 
 import moment from 'moment';
 import { getRoundNameFromResult } from "@/utils/statusTransitionHelper";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface CandidatesListProps {
   jobId: string;
@@ -1682,7 +1684,14 @@ const CandidatesList = ({
   const userRole = useSelector((state: any) => state.auth.role);
   const isEmployee = userRole === 'employee';
 
+  const ITECH_ORGANIZATION_ID = '1961d419-1272-4371-8dc7-63a4ec71be83';
+  const ASCENDION_ORGANIZATION_ID = "22068cb4-88fb-49e4-9fb8-4fa7ae9c23e5";
 
+    // ADDED: State for dynamic tabs
+  const [mainStatuses, setMainStatuses] = useState<MainStatus[]>([]);
+  const [areStatusesLoading, setAreStatusesLoading] = useState(true);
+
+console.log('mainStatuses', mainStatuses)
 
   const { data: candidatesData = [], isLoading, refetch } = useQuery({
     queryKey: ["job-candidates", jobId],
@@ -1869,6 +1878,24 @@ const [currentSubStatus, setCurrentSubStatus] = useState<{ id: string; name: str
   const recruitmentStages = ["New", "InReview", "Engaged", "Available", "Offered", "Hired"];
 
   const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || "http://62.72.51.159:5005";
+
+    // ADDED: useEffect to fetch and set dynamic tabs
+  useEffect(() => {
+    const loadStatuses = async () => {
+        try {
+            setAreStatusesLoading(true);
+            const data = await fetchAllStatuses();
+           
+            setMainStatuses(data);
+        } catch (error) {
+            console.error("Error loading statuses:", error);
+            toast.error("Failed to load statuses");
+        } finally {
+            setAreStatusesLoading(false);
+        }
+    };
+    loadStatuses();
+  }, []);
 
 useEffect(() => {
   setFilteredCandidates(candidatesData);
@@ -2281,184 +2308,163 @@ const { data: clientData } = useQuery({
 
 
  // --- UPDATED handleValidateResume using Proxy for POST, Direct for GET ---
- const handleValidateResume = async (candidateId: string) => {
-  let rqJobId: string | null = null; // RQ Job ID from backend response
- 
-  // Prevent re-validation if already loading
+const handleValidateResume = async (candidateId: string) => {
+  let rqJobId: string | null = null;
+
   if (validatingId) return;
- 
+
   try {
-    setValidatingId(candidateId); // Show loading state
+    setValidatingId(candidateId);
     toast.info("Starting resume validation...");
- 
-    // Find candidate data locally first
+
     const candidate = filteredCandidates.find((c) => c.id === candidateId);
-    // Ensure candidate and resume URL exist
+    console.log("candidate", candidate)
     if (!candidate || !candidate.resume) {
       throw new Error("Candidate or resume data missing.");
     }
- 
+
     const resumeUrlParts = candidate.resume.split("candidate_resumes/");
     const extractedResumeUrl = resumeUrlParts.length > 1 ? resumeUrlParts[1] : candidate.resume;
- 
-    // Get the TEXT job ID (e.g., ASC022) needed for the initial POST payload
-    // Assumes `jobId` prop passed to CandidatesList is the UUID
+
     const { data: jobData, error: jobError } = await supabase
       .from("hr_jobs")
-      .select("job_id") // Select the text job_id
-      .eq("id", jobId) // Filter by the UUID jobId passed as prop
-      .single(); // Expect exactly one job
- 
-    if (jobError || !jobData) { throw new Error("Invalid job configuration. Could not find job details."); }
-    const jobTextId = jobData.job_id; // e.g., ASC022
- 
-    // Payload for the backend API via proxy
+      .select("job_id")
+      .eq("id", jobId)
+      .single();
+
+    if (jobError || !jobData) {
+      throw new Error("Invalid job configuration. Could not find job details.");
+    }
+    const jobTextId = jobData.job_id;
+
     const payload = {
       job_id: jobTextId,
       candidate_id: candidateId,
       resume_url: extractedResumeUrl,
-      job_description: jobdescription, // Pass the description prop
+      job_description: jobdescription,
       organization_id: organizationId,
+      user_id: user.id,
     };
-    console.log("Sending payload to proxy /api/proxy:", payload);
- 
-    // --- Call the Vercel Proxy (POST) ---
-    const response = await fetch("/api/proxy", { // Relative path to your proxy function
+    console.log("Sending payload to backend:", payload);
+
+    const backendUrl = 'https://dev.hrumbles.ai/api/validate-candidate';
+    console.log(`Using backend URL: ${backendUrl}`);
+
+    const response = await fetch(backendUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Accept": "application/json" },
       body: JSON.stringify(payload),
     });
-    // ---
- 
-    if (!response.ok) { // Check if response status is 2xx
+
+    const contentType = response.headers.get("Content-Type");
+    if (!response.ok || !contentType?.includes("application/json")) {
       const errorText = await response.text();
-      console.error(`Proxy validation request failed: ${response.status} - ${errorText}`);
-      try { const errorJson = JSON.parse(errorText); throw new Error(errorJson.error || `Validation start failed: ${response.status}`); }
-      catch { throw new Error(`Validation start request failed: ${response.status}`); }
+      console.error(`Backend validation request failed: ${response.status} - ${response.statusText}`);
+      console.error("Content-Type:", contentType);
+      console.error("Response headers:", Object.fromEntries(response.headers.entries()));
+      console.error("Response body:", errorText.slice(0, 200));
+      throw new Error(
+        `Invalid response: Expected JSON, received ${contentType || "unknown"} - ${errorText.slice(0, 200)}`
+      );
     }
- 
+
     const responseData = await response.json();
-    console.log("Proxy validation response:", responseData);
-    if (!responseData.job_id) { throw new Error("Backend did not return a job ID to track."); }
-    rqJobId = responseData.job_id; // Store the RQ job ID
- 
-    // --- Start Polling Job Status (Directly to Backend - GET) ---
+    console.log("Backend validation response:", responseData);
+    if (!responseData.job_id) {
+      throw new Error("Backend did not return a job ID to track.");
+    }
+    rqJobId = responseData.job_id;
+
     let attempts = 0;
-    const maxAttempts = 24; // ~2 minutes
-    const interval = 5000; // 5 seconds
- 
+    const maxAttempts = 24;
+    const interval = 5000;
+
     const pollJobStatus = (): Promise<string> => {
       return new Promise(async (resolve, reject) => {
-        // Check attempt count before making the call
         if (attempts >= maxAttempts) {
-           console.error(`Polling timed out after ${maxAttempts} attempts for job ${rqJobId}.`);
-           return reject(new Error("Validation timed out. Check server logs."));
+          console.error(`Polling timed out after ${maxAttempts} attempts for job ${rqJobId}.`);
+          return reject(new Error("Validation timed out. Check server logs."));
         }
         attempts++;
         console.log(`Polling attempt ${attempts}/${maxAttempts} for job ${rqJobId}...`);
- 
+
         try {
-          // --- Poll the backend status endpoint DIRECTLY ---
-          const statusApiUrl = `/api/job-status-proxy?jobId=${encodeURIComponent(rqJobId)}`;
+          const statusApiUrl = `https://dev.hrumbles.ai/api/job-status/${encodeURIComponent(rqJobId)}`;
           console.log(`Polling URL: ${statusApiUrl}`);
           const statusResponse = await fetch(statusApiUrl);
-          // ---
- 
-          console.log(`Polling response status: ${statusResponse.status}`);
- 
-          if (!statusResponse.ok) {
+
+          const statusContentType = statusResponse.headers.get("Content-Type");
+          if (!statusResponse.ok || !statusContentType?.includes("application/json")) {
             const pollErrorText = await statusResponse.text();
             console.warn(`Polling status check failed (attempt ${attempts}): ${statusResponse.status} - ${pollErrorText}`);
-            // Retry until maxAttempts
             setTimeout(() => pollJobStatus().then(resolve).catch(reject), interval);
             return;
           }
- 
+
           const statusData = await statusResponse.json();
           console.log(`Polling status data:`, statusData);
- 
-          if (statusData.status === 'finished') {
+
+          if (statusData.status === "finished") {
             console.log("Job finished!");
-            return resolve(statusData.status); // Resolve the promise
-          } else if (statusData.status === 'failed') {
+            return resolve(statusData.status);
+          } else if (statusData.status === "failed") {
             console.error("Backend job failed:", statusData.result?.error);
-            // Try fetching logs DIRECTLY for better error message
             try {
-                const logApiUrl = `/api/job-logs-proxy?jobId=${encodeURIComponent(rqJobId)}`;
-                console.log(`Fetching failure logs from: ${logApiUrl}`);
-                const logResponse = await fetch(logApiUrl);
-                if (logResponse.ok) {
-                    const logsJson = await logResponse.json();
-                    console.log("Failure Logs:", logsJson.logs);
-                    // Look for specific error step in logs
-                    const errorLog = logsJson.logs?.find((log: any) => log.step?.includes("error"));
-                    const errorMessage = errorLog?.data?.error_message || statusData.result?.error || "Analysis failed on backend.";
-                    return reject(new Error(errorMessage)); // Reject with specific error
-                } else {
-                    console.warn(`Failed to fetch logs (${logResponse.status}), using original error.`);
-                    return reject(new Error(statusData.result?.error || "Analysis failed (could not fetch logs)."));
-                }
+              const logApiUrl = `https://dev.hrumbles.ai/api/job-logs?jobId=${encodeURIComponent(rqJobId)}`;
+              console.log(`Fetching failure logs from: ${logApiUrl}`);
+              const logResponse = await fetch(logApiUrl);
+              if (logResponse.ok) {
+                const logsJson = await logResponse.json();
+                console.log("Failure Logs:", logsJson.logs);
+                const errorLog = logsJson.logs?.find((log: any) => log.step?.includes("error"));
+                const errorMessage = errorLog?.data?.error_message || statusData.result?.error || "Analysis failed on backend.";
+                return reject(new Error(errorMessage));
+              } else {
+                console.warn(`Failed to fetch logs (${logResponse.status}), using original error.`);
+                return reject(new Error(statusData.result?.error || "Analysis failed (could not fetch logs)."));
+              }
             } catch (logError) {
-                console.warn("Error fetching failure logs:", logError);
-                return reject(new Error(statusData.result?.error || "Analysis failed (log fetch error)."));
+              console.warn("Error fetching failure logs:", logError);
+              return reject(new Error(statusData.result?.error || "Analysis failed (log fetch error)."));
             }
           } else {
-            // Still queued or started, schedule next poll
             setTimeout(() => pollJobStatus().then(resolve).catch(reject), interval);
           }
         } catch (error) {
           console.error("Network or other error during polling attempt:", error);
-           if (error instanceof TypeError && error.message.includes('fetch')) {
-               return reject(new Error("Network error polling job status. Check backend connectivity/CORS."));
-           }
-          // Retry for other errors until max attempts
+          if (error instanceof TypeError && error.message.includes("fetch")) {
+            return reject(new Error("Network error polling job status. Check backend connectivity."));
+          }
           if (attempts < maxAttempts) {
-             setTimeout(() => pollJobStatus().then(resolve).catch(reject), interval);
+            setTimeout(() => pollJobStatus().then(resolve).catch(reject), interval);
           } else {
-             reject(new Error("Polling failed after multiple retry attempts."));
+            reject(new Error("Polling failed after multiple retry attempts."));
           }
         }
       });
     };
- 
-    // Wait for polling to finish or fail
+
     await pollJobStatus();
- 
-    // --- Polling Succeeded ---
     toast.success("Resume validation process completed successfully!");
- 
-    // Refetch main candidate list data to update UI (e.g., show checkmark)
-    // This should now reflect the has_validated_resume=true set by the backend
-    await refetch();
- 
-    // Fetch final detailed analysis data for the modal
+
     const finalAnalysisData = await fetchAnalysisData(candidateId);
     if (finalAnalysisData) {
       console.log("Displaying modal with final data:", finalAnalysisData);
-      // Update local states to ensure modal has the latest data
       setAnalysisDataAvailable((prev) => ({ ...prev, [candidateId]: true }));
-      // Update the potentially less strict state if needed elsewhere
       setCandidateAnalysisData((prev) => ({ ...prev, [candidateId]: finalAnalysisData }));
-      // Set data for and open the modal
       setAnalysisData(finalAnalysisData);
       setIsSummaryModalOpen(true);
     } else {
-       // Handle case where job finished but fetching final data from DB failed
-       toast.warn("Validation complete, but failed to load final analysis details.");
-       // Ensure analysis available state is false if data couldn't be loaded
-       setAnalysisDataAvailable((prev) => ({ ...prev, [candidateId]: false }));
+      toast.warn("Validation complete, but failed to load final analysis details.");
+      setAnalysisDataAvailable((prev) => ({ ...prev, [candidateId]: false }));
     }
- 
   } catch (error: any) {
-    // Catch errors from initial POST or the polling promise rejection
     console.error("Overall validation error in handleValidateResume:", error);
     toast.error(error.message || "Failed to validate resume");
-    // No DB updates from frontend on failure
   } finally {
-    setValidatingId(null); // Stop loading indicator regardless of outcome
+    setValidatingId(null);
   }
-}; // --- END handleValidateResume ---
- 
+};
 
 
 
@@ -3125,77 +3131,27 @@ const { data: clientData } = useQuery({
               {getTabCount("All Candidates")}
             </span>
           </TabsTrigger1>
-          <TabsTrigger1 value="Applied" className="relative">
-            Applied
-            <span
-              className={`absolute top-0 right-1 text-xs rounded-full h-5 w-5 flex items-center justify-center ${
-                activeTab === "Applied" ? "bg-white purple-text-color" : "bg-purple text-white"
-              }`}
-            >
-              {getTabCount("Applied")}
-            </span>
-          </TabsTrigger1>
-          <TabsTrigger1 value="New" className="relative">
-            New
-            <span
-              className={`absolute top-0 right-1 text-xs rounded-full h-5 w-5 flex items-center justify-center ${
-                activeTab === "New" ? "bg-white purple-text-color" : "bg-purple text-white"
-              }`}
-            >
-              {getTabCount("New")}
-            </span>
-          </TabsTrigger1>
-          <TabsTrigger1 value="Processed" className="relative">
-            Processed
-            <span
-              className={`absolute top-0 right-1 text-xs rounded-full h-5 w-5 flex items-center justify-center ${
-                activeTab === "Processed"
-                  ? "bg-white purple-text-color"
-                  : "bg-purple text-white"
-              }`}
-            >
-              {getTabCount("Processed")}
-            </span>
-          </TabsTrigger1>
-          <TabsTrigger1 value="Interview" className="relative">
-            Interview
-            <span
-              className={`absolute top-0 right-1 text-xs rounded-full h-5 w-5 flex items-center justify-center ${
-                activeTab === "Interview"
-                  ? "bg-white purple-text-color"
-                  : "bg-purple text-white"
-              }`}
-            >
-              {getTabCount("Interview")}
-            </span>
-          </TabsTrigger1>
-          <TabsTrigger1 value="Offered" className="relative">
-            Offered
-            <span
-              className={`absolute top-0 right-1 text-xs rounded-full h-5 w-5 flex items-center justify-center ${
-                activeTab === "Offered"
-                  ? "bg-white purple-text-color"
-                  : "bg-purple text-white"
-              }`}
-            >
-              {getTabCount("Offered")}
-            </span>
-          </TabsTrigger1>
-          <TabsTrigger1 value="Joined" className="relative">
-            Joined
-            <span
-              className={`absolute top-0 right-1 text-xs rounded-full h-5 w-5 flex items-center justify-center ${
-                activeTab === "Joined"
-                  ? "bg-white purple-text-color"
-                  : "bg-purple text-white"
-              }`}
-            >
-              {getTabCount("Joined")}
-            </span>
-          </TabsTrigger1>
+         
+           {areStatusesLoading ? (
+            Array.from({ length: 5 }).map((_, index) => (
+              <Skeleton key={index} className="h-10 w-full rounded-md" />
+            ))
+          ) : (
+            mainStatuses.map((status) => (
+              <TabsTrigger1 key={status.id} value={status.name} className="relative">
+                {status.name}
+                <span
+                  className={`absolute top-0 right-1 text-xs rounded-full h-5 w-5 flex items-center justify-center ${
+                    activeTab === status.name ? "bg-white purple-text-color" : "bg-purple text-white"
+                  }`}
+                >
+                  {getTabCount(status.name)}
+                </span>
+              </TabsTrigger1>
+            ))
+          )}
         </TabsList1>
       </Tabs>
-
       {filteredCandidates.length === 0 ? (
         <EmptyState onAddCandidate={async () => {
           try {
@@ -3233,7 +3189,7 @@ const { data: clientData } = useQuery({
                 <TableHead className="w-[50px] sm:w-[100px]">
                   Contact Info
                 </TableHead>
-                {!isEmployee && <TableHead className="w-[80px] sm:w-[100px]">Profit</TableHead>}
+                {organizationId !== ITECH_ORGANIZATION_ID || organizationId !== ASCENDION_ORGANIZATION_ID && !isEmployee && <TableHead className="w-[80px] sm:w-[100px]">Profit</TableHead>}
                 <TableHead className="w-[120px] sm:w-[150px]">Stage Progress</TableHead>
                 <TableHead className="w-[100px] sm:w-[120px]">Status</TableHead>
                 <TableHead className="w-[80px] sm:w-[100px]">Validate</TableHead>
@@ -3272,7 +3228,7 @@ const { data: clientData } = useQuery({
                     phone={candidate.phone}
                     candidateId={candidate.id}
                   />
-                 {!isEmployee && (
+                {organizationId !== ITECH_ORGANIZATION_ID || organizationId !== ASCENDION_ORGANIZATION_ID && !isEmployee && (
   <TableCell>
     <span
       className={
@@ -3296,13 +3252,22 @@ const { data: clientData } = useQuery({
                       />
                     </div>
                   </TableCell>
-                  <TableCell>
-                    <StatusSelector
-                      value={candidate.sub_status_id || ""}
-                      onChange={(value) => handleStatusChange(value, candidate)}
-                      className="h-7 text-xs w-full"
-                      disableNextStage={candidate.sub_status?.name?.includes('Reject')}
-                    />
+                 <TableCell>
+                    {/* 3. ADD CONDITIONAL RENDERING LOGIC */}
+                    {organizationId === ITECH_ORGANIZATION_ID || organizationId === ASCENDION_ORGANIZATION_ID ? (
+                      <ItechStatusSelector
+                        value={candidate.sub_status_id || ""}
+                        onChange={(value) => handleStatusChange(value, candidate)}
+                        className="h-7 text-xs w-full"
+                      />
+                    ) : (
+                      <StatusSelector
+                        value={candidate.sub_status_id || ""}
+                        onChange={(value) => handleStatusChange(value, candidate)}
+                        className="h-7 text-xs w-full"
+                        disableNextStage={candidate.sub_status?.name?.includes('Reject')}
+                      />
+                    )}
                   </TableCell>
                   <TableCell className="px-2">
                     <div className="flex items-center gap-2">

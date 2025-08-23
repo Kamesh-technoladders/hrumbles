@@ -1,4 +1,4 @@
-import { Box, Flex, IconButton, Input, InputGroup, InputLeftElement, Avatar, Menu, MenuButton, MenuList, MenuItem, useColorMode, Text, useMediaQuery } from "@chakra-ui/react";
+import { Box, Flex, IconButton, Input, InputGroup, InputLeftElement, Avatar, Menu, MenuButton, MenuList, MenuItem, useColorMode, Text, useMediaQuery, Badge, Spinner } from "@chakra-ui/react";
 import { FiSearch, FiBell, FiSun, FiLogOut, FiUser, FiMenu } from "react-icons/fi";
 import { useState, useEffect } from "react";
 import { Outlet, useNavigate } from "react-router-dom"; 
@@ -6,30 +6,146 @@ import NewSidebar from "../components/Sidebar/NewSidebar";
 import { signOut } from "../utils/api";
 import { useSelector, useDispatch } from "react-redux"; 
 import { logout } from "../Redux/authSlice";
-import { supabase } from "@/integrations/supabase/client"; // Import Supabase client
+import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { isSameDay } from "date-fns";
 
 const MainLayout = () => {
- const { colorMode, toggleColorMode } = useColorMode();
+  const { colorMode, toggleColorMode } = useColorMode();
   const navigate = useNavigate();
   const dispatch = useDispatch();
-  // Default to expanded on desktop, collapsed on mobile
   const [isMobile] = useMediaQuery("(max-width: 768px)");
   const [isSidebarExpanded, setSidebarExpanded] = useState(!isMobile);
   const [interviews, setInterviews] = useState([]);
   const [hasTodayInterview, setHasTodayInterview] = useState(false);
-
-
+  
+  // MODIFICATION: Get role and organization_id from Redux store
   const user = useSelector((state) => state.auth.user);
+  const role = useSelector((state) => state.auth.role);
+  const organizationId = useSelector((state) => state.auth.organization_id);
 
-  console.log("userrrrrrrr", user)
-    // Update sidebar state if screen size changes
+    // MODIFICATION: State to hold organization credit details
+  const [orgCredits, setOrgCredits] = useState(null);
+  const [isLoadingCredits, setIsLoadingCredits] = useState(true);
+
+  console.log("userrrrrrrr", user);
+
   useEffect(() => {
     setSidebarExpanded(!isMobile);
   }, [isMobile]);
 
-  // Fetch interviews for the logged-in employee
+  // MODIFICATION: New useEffect to fetch organization credit data
+  useEffect(() => {
+    const fetchOrganizationCredits = async () => {
+      // Only run this for the specified role
+      if (role !== 'organization_superadmin' || !organizationId) {
+        setIsLoadingCredits(false);
+        return;
+      }
+
+      try {
+        setIsLoadingCredits(true);
+        // Fetch credit limits and user counts in parallel
+        const [orgDetails, employees] = await Promise.all([
+          supabase
+            .from('hr_organizations')
+            .select('role_credit_limits')
+            .eq('id', organizationId)
+            .single(),
+          supabase
+            .from('hr_employees')
+            .select('id, hr_roles(name)')
+            .eq('organization_id', organizationId)
+        ]);
+
+        if (orgDetails.error) throw orgDetails.error;
+        if (employees.error) throw employees.error;
+
+        const limits = orgDetails.data.role_credit_limits;
+
+        // Calculate current user counts for each role
+        const counts = employees.data.reduce((acc, employee) => {
+          const roleName = employee.hr_roles?.name;
+          if (roleName) {
+            acc[roleName] = (acc[roleName] || 0) + 1;
+          }
+          return acc;
+        }, {});
+
+        // Combine limits and counts into a single object for easy rendering
+        const combinedCredits = Object.keys(limits).reduce((acc, roleName) => {
+          acc[roleName] = {
+            limit: limits[roleName],
+            count: counts[roleName] || 0
+          };
+          return acc;
+        }, {});
+
+        setOrgCredits(combinedCredits);
+
+      } catch (error) {
+        console.error("Error fetching organization credits:", error);
+        toast.error("Could not load user credit details.");
+      } finally {
+        setIsLoadingCredits(false);
+      }
+    };
+
+    fetchOrganizationCredits();
+  }, [role, organizationId]); // Rerun if role or org ID changes
+
+  // MODIFICATION: Add a new useEffect for the real-time status listener
+  useEffect(() => {
+    // Ensure we have a user before subscribing
+    if (!user?.id) return;
+
+    // Define the channel and subscription
+    const channel = supabase
+      .channel(`employee-status-channel:${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'hr_employees',
+          filter: `id=eq.${user.id}`, // Only listen for changes to the currently logged-in user
+        },
+        (payload) => {
+          console.log('Received a real-time update for the current user:', payload);
+          
+          const updatedEmployee = payload.new;
+          
+          // Check if the user's status is no longer 'active'
+          if (updatedEmployee.status !== 'active') {
+            console.log(`User status changed to "${updatedEmployee.status}". Forcing logout.`);
+            
+            // Show a toast message to inform the user
+            toast.warning("Your account is disabled. Please contact your administrator.");
+
+            // Dispatch the logout action and redirect
+            dispatch(logout());
+            navigate("/login");
+          }
+        }
+      )
+      .subscribe((status, err) => {
+        if (status === 'SUBSCRIBED') {
+          console.log(`Realtime channel subscribed for user: ${user.id}`);
+        }
+        if (err) {
+          console.error('Realtime subscription error:', err);
+        }
+      });
+
+    // IMPORTANT: Cleanup function to unsubscribe when the component unmounts or the user changes
+    return () => {
+      console.log('Unsubscribing from realtime channel.');
+      supabase.removeChannel(channel);
+    };
+
+  }, [user, dispatch, navigate]); // Rerun this effect if the user object changes
+
+
   useEffect(() => {
     const fetchInterviews = async () => {
       try {
@@ -39,7 +155,6 @@ const MainLayout = () => {
 
         const fullName = `${user.user_metadata.first_name} ${user.user_metadata.last_name}`;
 
-        // Fetch interviews
         const { data: candidatesData, error: candidatesError } = await supabase
           .from("hr_job_candidates")
           .select("name, interview_date, interview_time, interview_location, interview_type, round")
@@ -51,11 +166,8 @@ const MainLayout = () => {
           throw new Error(`Failed to fetch interviews: ${candidatesError.message}`);
         }
 
-        // Filter for upcoming interviews (on or after May 20, 2025, 09:23 PM IST)
-         // Get current date in IST
         const currentDate = new Date();
-        // Adjust to IST if needed (client-side date is typically in local timezone; confirm server/client alignment)
-        const istOffset = 5.5 * 60 * 60 * 1000; // IST is UTC+05:30
+        const istOffset = 5.5 * 60 * 60 * 1000;
         const istDate = new Date(currentDate.getTime() + istOffset);
         const upcomingInterviews = candidatesData
           .filter((candidate) => {
@@ -76,7 +188,6 @@ const MainLayout = () => {
 
         setInterviews(upcomingInterviews);
 
-        // Check for interviews today
         const today = new Date("2025-05-20T21:23:00+05:30");
         const hasInterviewToday = upcomingInterviews.some((interview) =>
           isSameDay(new Date(interview.interview_date), today)
@@ -95,21 +206,23 @@ const MainLayout = () => {
     }
   }, [user?.id]);
 
-  // Handle Logout Function
+  const roleDisplayNameMap = {
+  organization_superadmin: 'Super Admin',
+  admin: 'Admin', // Changed to "Admins" to match the plural context, but you can change it back to "Admin" if you prefer
+  employee: 'Users',
+};
+
   const handleLogout = () => {
     dispatch(logout());
     navigate("/login");
   };
-  
 
-  // Format interview date as "MMM D"
   const formatInterviewDate = (date) => {
     const interviewDate = new Date(date);
     const options = { month: "short", day: "numeric" };
     return interviewDate.toLocaleDateString("en-US", options);
   };
 
-  // Format interview time as "h:mm A"
   const formatInterviewTime = (time) => {
     if (!time) return "N/A";
     const [hours, minutes] = time.split(":");
@@ -118,19 +231,16 @@ const MainLayout = () => {
     return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
   };
 
-  // Dynamically Adjust Sidebar Width Based on Expansion and Screen Size
- // --- Define New Sidebar Widths ---
   const expandedSidebarWidth = "250px";
   const collapsedSidebarWidth = "80px";
-  const sidebarWidth = isSidebarExpanded ? expandedSidebarWidth : collapsedSidebarWidth;
-  
+  const mainSidebarWidth = isSidebarExpanded ? expandedSidebarWidth : collapsedSidebarWidth;
+
   const toggleSidebar = () => {
     setSidebarExpanded(!isSidebarExpanded);
   };
 
-    return (
+  return (
     <Flex height="100vh" overflow="hidden" bg={colorMode === "dark" ? "gray.800" : "gray.50"}>
-      {/* --- Mobile-only Overlay to close sidebar --- */}
       {isMobile && isSidebarExpanded && (
         <Box
           position="fixed"
@@ -144,18 +254,22 @@ const MainLayout = () => {
         />
       )}
       
-      {/* --- Render the New Sidebar --- */}
-      {/* The sidebar is now controlled by the layout */}
       <NewSidebar isExpanded={isSidebarExpanded} toggleSidebar={toggleSidebar} />
 
-      {/* --- Main Content Area --- */}
-      <Flex direction="column" flex="1" ml={{ base: isMobile ? "0" : sidebarWidth, md: sidebarWidth }} transition="margin-left 0.2s ease-in-out">
-        {/* Fixed Header */}
+      <Flex 
+        direction="column" 
+        flex="1" 
+        ml={{ base: isMobile ? "0" : mainSidebarWidth, md: mainSidebarWidth }}
+        transition="margin-left 0.2s ease-in-out"
+      >
         <Flex
           as="header"
           align="center"
           justify="space-between"
-          w={{ base: "100%", md: `calc(100% - ${sidebarWidth})` }}
+          w={{
+            base: "100%",
+            md: `calc(100% - ${mainSidebarWidth})`
+          }}
           position="fixed"
           top={0}
           p={4}
@@ -165,7 +279,6 @@ const MainLayout = () => {
           transition="width 0.2s ease-in-out"
           boxShadow="sm"
         >
-          {/* Left Section - Mobile Menu Toggle & Search */}
           <Flex align="center" gap={2}>
             {isMobile && (
               <IconButton
@@ -188,8 +301,49 @@ const MainLayout = () => {
             </InputGroup>
           </Flex>
 
-          {/* Right Section - Icons and User Profile */}
           <Flex align="center" gap={4}>
+
+             {role === 'organization_superadmin' && (
+              <Flex 
+                align="center" 
+                gap={4} // Increased gap for better spacing between vertical blocks
+                display={{ base: "none", lg: "flex" }} 
+                bg={colorMode === 'dark' ? 'gray.700' : 'gray.100'}
+                px={3} // Use padding on X-axis
+                py={1} // Use padding on Y-axis
+                borderRadius="md"
+              >
+                <Text fontSize="sm" fontWeight="bold" alignSelf="center">Subscription:</Text>
+                {isLoadingCredits ? (
+                  <Spinner size="sm" />
+                ) : (
+                  orgCredits && Object.entries(orgCredits).map(([roleName, data]) => (
+                    data.limit > 0 && (
+                      // MODIFICATION: Changed Flex direction and content
+                      <Flex 
+                        key={roleName} 
+                        direction="column" // Stack items vertically
+                        align="center"     // Center them horizontally
+                      >
+                        <Text fontSize="xs" fontWeight="medium">
+                          {/* Use the map to get the display name, with a fallback */}
+                          {roleDisplayNameMap[roleName] || roleName}
+                        </Text>
+                        <Badge 
+                          colorScheme={data.count >= data.limit ? "red" : "green"}
+                          variant="solid"
+                          fontSize="xs"
+                          w="full" // Make badge take full width of the flex container
+                          textAlign="center"
+                        >
+                          {data.count}/{data.limit}
+                        </Badge>
+                      </Flex>
+                    )
+                  ))
+                )}
+              </Flex>
+            )}
             <Menu>
               <MenuButton
                 as={IconButton}
@@ -270,7 +424,6 @@ const MainLayout = () => {
           </Flex>
         </Flex>
 
-        {/* Main Content - Only Content is Scrollable */}
         <Box flex="1" overflowY="auto" p={6} mt="60px" bg={colorMode}>
           <Outlet />
         </Box>

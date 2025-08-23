@@ -9,6 +9,8 @@ import {
 } from '@/types/company';
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
 import { Database } from '@/types/database.types'; 
+import { getAuthDataFromLocalStorage } from "@/utils/localstorage";
+import { v4 as uuidv4 } from 'uuid';
 
 // --- Gemini Config & Helper Functions ---
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
@@ -129,18 +131,45 @@ async function validateUrl(url: string | null): Promise<string | null> { /* ... 
 }
 
 // --- Hook to fetch the list of companies ---
-export const useCompanies = () => { /* ... (your existing hook) ... */ 
+export const useCompanies = (fileId?: string) => { /* ... (your existing hook) ... */ 
+   const authData = getAuthDataFromLocalStorage();
+          if (!authData) {
+            throw new Error('Failed to retrieve authentication data');
+          }
+          const { organization_id, userId } = authData;
   return useQuery<Company[], Error>({
-    queryKey: ['companies'],
+    queryKey: ['companies', organization_id, fileId || 'all'],
     queryFn: async (): Promise<Company[]> => {
-      const { data, error } = await supabase
+      if (!organization_id) {
+        console.log("[useCompanies] No organizationId, returning empty array.");
+        return [];
+      }
+
+      let query = supabase
         .from('companies')
-        .select('id, name, logo_url, employee_count, industry, stage, location, account_owner, website, linkedin, created_at, revenue, cashflow, founded_as, employee_count_date, competitors, products, services, key_people, about, domain, status')
+        .select('id, name, logo_url, employee_count, industry, stage, location, created_by, updated_by, account_owner, website, linkedin, created_at, revenue, cashflow, founded_as, employee_count_date, competitors, products, services, key_people, about, domain, status, created_by_employee:hr_employees!companies_created_by_fkey(id, first_name, last_name), updated_by_employee:hr_employees!companies_updated_by_fkey(id, first_name, last_name)')
         .order('created_at', { ascending: false })
-        .order('id', { ascending: true });
-      if (error) { console.error('Error fetching ordered companies:', error); throw error; }
+        .order('id', { ascending: true })
+        .eq('organization_id', organization_id);
+        
+      if (fileId) {
+        console.log(`[useCompanies] Fetching companies for fileId: ${fileId}`);
+        query = query.eq('file_id', fileId);
+      } else {
+        console.log("[useCompanies] Fetching all companies for the organization.");
+      }
+        
+      const { data, error } = await query.order('created_at', { ascending: false });
+        
+      if (error) { 
+        console.error('Error fetching companies:', error); 
+        throw error; 
+      }
+      
+      console.log(`[useCompanies] Fetched ${data?.length || 0} companies.`);
       return data || [];
     },
+    enabled: !!organization_id, // Only run if organizationId is available
   });
 }
 
@@ -444,13 +473,33 @@ export const useFetchCompanyDetails = () => { /* ... (your existing hook) ... */
     };
   }
 
-  return async (companyName: string): Promise<Partial<CompanyDetailTypeFromTypes>> => {
-    if (!companyName || companyName.trim() === "") {
-      throw new Error("Company name is required for AI fetch.");
+return async (identifier: string): Promise<Partial<CompanyDetailTypeFromTypes>> => {
+    // ✅ Updated error message
+    if (!identifier || identifier.trim() === "") {
+      throw new Error("Company name, domain, or LinkedIn URL is required for AI fetch.");
     }
 
-    const prompt = `
-        Provide comprehensive details for the company named "${companyName}":
+    // --- START: MODIFICATION ---
+    const authData = getAuthDataFromLocalStorage();
+    if (!authData) {
+      throw new Error("User authentication data not found for logging.");
+    }
+    const { organization_id, userId } = authData;
+
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let responseText = "";
+    let status = "FAILURE"; // Default status
+    let parsedData: any = null;
+    // --- END: MODIFICATION ---
+
+ const prompt = `
+        You will be given a single identifier which could be a company name, a website domain, or a LinkedIn company page URL.
+        Your task is to first identify the precise company from this identifier and then provide comprehensive details for it.
+
+        The identifier is: "${identifier}"
+
+        Based on that identifier, find the company and provide the following details:
         1.  Official Company Name (key: "name")
         2.  Primary Website URL (key: "website")
         3.  Primary Domain (if different, key: "domain")
@@ -470,13 +519,13 @@ export const useFetchCompanyDetails = () => { /* ... (your existing hook) ... */
         17. Key Products/Platforms (array of strings, key: "products")
         18. Main Services Offered (array of strings, key: "services")
         19. Key People (array of objects {name: string, title: string}, THIS SHOULD INCLUDE THE CEO IF KNOWN, key: "key_people"). If none known, use null or an empty array.
-        20. Publicly accessible Logo URL (key: "logo_url")
+        20. **Logo URL (key: "logo_url"): First, try to construct a logo URL from a reliable logo service like Clearbit using the company's domain (e.g., 'https://logo.clearbit.com/DOMAIN_NAME'). If you cannot determine the domain, then find the best publicly accessible, non-temporary logo URL you can find.**
 
         Return ONLY a single, valid JSON object with these keys. Use null if info not found. No extra text or markdown.
-        Example: {"name":"Accenture", "start_date":"1989", "key_people":[{"name":"Julie Sweet", "title":"Chair & CEO"}]}
+        Example for identifier "accenture.com": {"name":"Accenture", "domain":"accenture.com", "logo_url":"https://logo.clearbit.com/accenture.com"}
       `;
 
-    try {
+  try {
       const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
       const model = genAI.getGenerativeModel({ model: GEMINI_MODEL_NAME });
       const generationConfig = { temperature: 0.2, topK: 1, topP: 1, maxOutputTokens: 3000 };
@@ -489,48 +538,103 @@ export const useFetchCompanyDetails = () => { /* ... (your existing hook) ... */
       const parts = [{ text: prompt }];
       const result = await model.generateContent({ contents: [{ role: "user", parts }], generationConfig, safetySettings });
 
+      
+
+      // --- START: MODIFICATION ---
+      inputTokens = result.response.usageMetadata?.promptTokenCount ?? 0;
+      outputTokens = result.response.usageMetadata?.candidatesTokenCount ?? 0;
+      responseText = result.response.text();
+      // --- END: MODIFICATION ---
+
       if (!result.response?.candidates?.length) { throw new Error("Gemini: AI service did not provide a valid response."); }
-      const responseText = result.response.text();
-      const data = extractJsonWithFallback(responseText, companyName);
+      
+      parsedData = extractJsonWithFallback(responseText, identifier);
 
-      if (!data || typeof data !== 'object' || !data.name || typeof data.name !== 'string') { throw new Error("Gemini: AI failed to return valid or correctly structured JSON.");}
+      if (!parsedData || typeof parsedData !== 'object' || !parsedData.name || typeof parsedData.name !== 'string') { throw new Error("Gemini: AI failed to return valid or correctly structured JSON.");}
 
-      const validatedWebsite = await validateUrl(data.website);
-      const validatedLinkedIn = await validateUrl(data.linkedin);
-      const validatedLogoUrl = await validateUrl(data.logo_url);
+      status = "SUCCESS"; // Mark as successful if parsing worked
+
+  const validatedWebsite = await validateUrl(parsedData.website);
+      const validatedLinkedIn = await validateUrl(parsedData.linkedin);
+      const selfHostedLogoUrl = await uploadLogoFromUrl(parsedData.logo_url);
 
       const mappedDetails: Partial<CompanyDetailTypeFromTypes> = {
-          name: data.name.trim(),
-          website: validatedWebsite, domain: typeof data.domain === 'string' ? data.domain.trim() : null,
-          about: typeof data.about === 'string' ? data.about.trim() : null,
-          start_date: typeof data.start_date === 'string' ? data.start_date.trim() : null,
-          founded_as: typeof data.founded_as === 'string' ? data.founded_as.trim() : null,
-          employee_count: parseFinancialValue(data.employee_count),
-          employee_count_date: typeof data.employee_count_date === 'string' ? data.employee_count_date.trim() : null,
-          address: typeof data.address === 'string' ? data.address.trim() : null,
-          location: typeof data.location === 'string' ? (data.location.trim().toLowerCase() === "anytown, usa" ? null : data.location.trim()) : null,
-          industry: typeof data.industry === 'string' ? data.industry.trim() : null,
-          stage: typeof data.stage === 'string' ? data.stage.trim() : null, 
+          name: parsedData.name.trim(),
+          website: validatedWebsite, domain: typeof parsedData.domain === 'string' ? parsedData.domain.trim() : null,
+          about: typeof parsedData.about === 'string' ? parsedData.about.trim() : null,
+          start_date: typeof parsedData.start_date === 'string' ? parsedData.start_date.trim() : null,
+          founded_as: typeof parsedData.founded_as === 'string' ? parsedData.founded_as.trim() : null,
+          employee_count: parseFinancialValue(parsedData.employee_count),
+          employee_count_date: typeof parsedData.employee_count_date === 'string' ? parsedData.employee_count_date.trim() : null,
+          address: typeof parsedData.address === 'string' ? parsedData.address.trim() : null,
+          location: typeof parsedData.location === 'string' ? (parsedData.location.trim().toLowerCase() === "anytown, usa" ? null : parsedData.location.trim()) : null,
+          industry: typeof parsedData.industry === 'string' ? parsedData.industry.trim() : null,
+          stage: 'New', 
           linkedin: validatedLinkedIn,
-          revenue: parseFinancialValue(data.revenue), cashflow: parseFinancialValue(data.cashflow),
-          competitors: Array.isArray(data.competitors) ? data.competitors.map((c: any) => String(c || '').trim()).filter(Boolean) : null,
-          products: Array.isArray(data.products) ? data.products.map((p: any) => String(p || '').trim()).filter(Boolean) : null,
-          services: Array.isArray(data.services) ? data.services.map((s: any) => String(s || '').trim()).filter(Boolean) : null,
-          key_people: data.key_people === "-" || data.key_people === null ? null : (Array.isArray(data.key_people) ? data.key_people.map((kp: any) => ({ name: String(kp.name || '').trim(), title: String(kp.title || '').trim() })).filter((kp: KeyPerson) => kp.name && kp.title) : null),
-          logo_url: validatedLogoUrl,
+          revenue: parseFinancialValue(parsedData.revenue), cashflow: parseFinancialValue(parsedData.cashflow),
+          competitors: Array.isArray(parsedData.competitors) ? parsedData.competitors.map((c: any) => String(c || '').trim()).filter(Boolean) : null,
+          products: Array.isArray(parsedData.products) ? parsedData.products.map((p: any) => String(p || '').trim()).filter(Boolean) : null,
+          services: Array.isArray(parsedData.services) ? parsedData.services.map((s: any) => String(s || '').trim()).filter(Boolean) : null,
+          key_people: parsedData.key_people === "-" || parsedData.key_people === null ? null : (Array.isArray(parsedData.key_people) ? parsedData.key_people.map((kp: any) => ({ name: String(kp.name || '').trim(), title: String(kp.title || '').trim() })).filter((kp: KeyPerson) => kp.name && kp.title) : null),
+          logo_url: selfHostedLogoUrl, 
       };
 
       if (Array.isArray(mappedDetails.key_people)) {
           const ceoPerson = mappedDetails.key_people.find(p => p.title && p.title.toLowerCase().includes('ceo'));
           if (ceoPerson) { mappedDetails.ceo = ceoPerson.name; }
-      } else if (typeof data.ceo === 'string' && data.ceo.trim()) { 
-          mappedDetails.ceo = data.ceo.trim();
+      } else if (typeof parsedData.ceo === 'string' && parsedData.ceo.trim()) { 
+          mappedDetails.ceo = parsedData.ceo.trim();
       }
       return mappedDetails;
 
     } catch (error: any) {
-      console.error(`Error fetching company details via Gemini for "${companyName}":`, error);
+      console.error(`Error fetching company details via Gemini for identifier "${identifier}":`, error);
       throw new Error(`Failed to fetch details from Gemini: ${error.message}`);
+    } finally {
+        // --- START: MODIFICATION ---
+        // Always log the API call attempt to the database.
+        await supabase.from('hr_gemini_usage_log').insert({
+          organization_id: organization_id,
+          created_by: userId,
+          status: status,
+          input_tokens: inputTokens,
+          output_tokens: outputTokens,
+          analysis_response: parsedData ?? { error: "Parsing failed", raw_response: responseText },
+          parsed_email: null, // Not applicable for this type of call
+          usage_type: 'company_fetch'
+        });
+        // --- END: MODIFICATION ---
     }
   };
+}
+
+// --- ADD THIS NEW HELPER FUNCTION ---
+// This function will download an image from a URL and upload it to your Supabase Storage.
+async function uploadLogoFromUrl(url: string | null | undefined): Promise<string | null> {
+  if (!url) return null;
+
+  try {
+    // Invoke the 'image-proxy' function with the target URL
+    const { data, error } = await supabase.functions.invoke('image-proxy', {
+      body: { imageUrl: url },
+    });
+
+    if (error) {
+      // This will catch network errors or if the function itself throws an unhandled error
+      throw new Error(`Edge function invocation failed: ${error.message}`);
+    }
+    
+    // The function returns JSON, so 'data' will have our object
+    if (data.error) {
+        // This catches errors returned deliberately from our function logic
+        throw new Error(`Image proxy error: ${data.error}`);
+    }
+
+    console.log('Successfully proxied and uploaded logo:', data.publicUrl);
+    return data.publicUrl || null;
+
+  } catch (error: any) {
+    console.error(`Error processing logo via proxy for ${url}:`, error.message);
+    return null; // Return null on failure
+  }
 }

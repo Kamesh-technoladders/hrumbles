@@ -1,9 +1,28 @@
 
+// App.jsx (Modified for Redux)
+
+import { useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { useDispatch } from "react-redux";
+
+// Import the Redux action and the utility
+import { setOrganization } from "./Redux/organizationSlice";
+import { getOrganizationSubdomain } from "./utils/subdomain";
+
+// Import your pages
+import DomainVerificationPage from "./pages/DomainVerificationPage";
+
 import Login from "./pages/LoginPage";
 import SignUp from "./pages/GlobalSuperAdmin";
 import PrivateRoutes from "./utils/PrivateRoutes";
+
+// Global Superadmin
 import GlobalSuperadminDashboard from "./pages/Global_Dashboard";
+import VerificationHubPage from "./pages/verifications/VerificationHubPage";
+import VerificationTypeDashboardPage from "./pages/verifications/VerificationTypeDashboardPage";
+import OrganizationVerificationReportPage from "./pages/verifications/OrganizationVerificationReportPage";
+
+
 import MainLayout from "./layouts/MainLayout";
 import HomePage from "./pages/HomePage";
 import Dashboard from "./pages/dashboard";
@@ -12,11 +31,14 @@ import UserManagement from "./pages/UserManagement";
 import Clients from "./pages/Client";
 import ClientDashboard from "./components/Client/ClientDashboard";
 import ProjectDashboard from "./components/Client/ProjectDashboard";
+import ProjectManagement from "./pages/clients/ProjectManagement";
 import Index from "./pages/Index";
 
 // Password change
 import PasswordChange from "./pages/ChangeEmployeePassword";
 import SetPassword from "./pages/SetPassword"
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+
 // import EmployeeProfile from "./pages/EmployeeProfile";
 import ProfilePageEmployee from "./pages/ProfilePageEmployee";
 import EmployeeList from "./pages/EmployeeList";
@@ -27,6 +49,9 @@ import GoalView from "./pages/goals/EmployeeView";
 import GoalDetail from "./pages/goals/GoalDetail";
 import EmployeeGoalView from "./components/goals/employee/EmployeeGoalDashboard"
 import GoalDetailView from "./components/goals/dashboard/GoalDetailView";
+
+// New CLients
+import ClientNew from "./pages/ClientNew/page";
 
 // Jobs
 import Jobs from "./pages/jobs/Jobs";
@@ -40,6 +65,25 @@ import ResumeAnalysisDetailView from "./pages/jobs/ResumeAnalysisDetailView";
 import SharedProfile from "./pages/jobs/SharedProfile"
 import ReportsPage from "./pages/reports/Index";
 import EmployeeProfilePage from "./components/MagicLinkView/EmployeeProfileDrawer";
+import CandidateConsentPage from './components/MagicLinkView/CandidateConsentPage';
+
+// Job Route Handler
+import JobRouteHandler from "./components/jobs/JobRouteHandler";
+import JobViewRouteHandler from "./components/jobs/JobViewRouteHandler";
+import CandidateBgvProfilePage from "./pages/bg-verification/CandidateBgvProfilePage";
+import AllCandidatesPage from "./pages/bg-verification/AllCandidatesPage";
+
+// Candidates
+import TalentPoolPage from "./pages/candidates/TalentPoolPage"; // Create this new page
+import CandidateProfilePage from "./pages/candidates/CandidateProfilePage"; 
+
+import MigratedTalentPoolPage from "./pages/candidates/MigratedTalentPoolPage";
+import MigratedCandidateProfilePage from "./pages/candidates/MigratedCandidateProfilePage";
+
+// Zive-X
+import ZiveXSearchPage from "./pages/candidates/ZiveXSearchPage";
+import ZiveXResultsPage from "./pages/candidates/ZiveXResultsPage";
+
 // Finance & Accounts
 import FinanceIndex from "./pages/finance/Index";
 import PayrollEdit from "./pages/finance/PayrollEdit";
@@ -57,6 +101,10 @@ import CompaniesPage from "./pages/sales/CompaniesPage";
 import CompanyDetail from "./pages/sales/CompanyDetail";
 import CompanyEdit from "./pages/sales/CompanyEdit";
 import ContactsPage from "./pages/sales/ContactsPage";
+import EditableContactsPage from './pages/sales/EditableContactsPage';
+import TanstackContactsPage from './pages/sales/TanstackContactsPage';
+import KanbanView from './pages/sales/KanbanBoard';
+import ListsPage from './pages/sales/ListsPage';
 
 // Clients
 import ClientPage from "./pages/clients/ClientDashboard";
@@ -85,6 +133,29 @@ import Holidays from "./pages/TimeManagement/admin/Holidays";
 import Projects from "./pages/TimeManagement/admin/Projects";
 
 function App() {
+
+  const organizationSubdomain = getOrganizationSubdomain();
+  const dispatch = useDispatch();
+
+  useEffect(() => {
+    // If a subdomain is found, dispatch it to the Redux store.
+    // This makes it available globally to any component connected to Redux.
+    if (organizationSubdomain) {
+      dispatch(setOrganization(organizationSubdomain));
+    }
+  }, [organizationSubdomain, dispatch]);
+
+    // If no subdomain is detected, show ONLY the verification page.
+  if (!organizationSubdomain) {
+    return (
+      <Router>
+        <Routes>
+          <Route path="*" element={<DomainVerificationPage />} />
+        </Routes>
+      </Router>
+    ); 
+  }
+
   return (
     <Router>
       <Routes>
@@ -92,7 +163,11 @@ function App() {
         <Route path="/" element={<Login />} />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<SignUp />} />
-         <Route path="/set-password" element={<SetPassword />} />
+                 <Route path="/set-password" element={<SetPassword />} />
+                  <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+
+               
+
 
         {/* career page */}
         <Route path="/careers" element={<Career />} />
@@ -101,6 +176,8 @@ function App() {
 
           {/* Candidate Profile Magic Link */}
           <Route path="/share/:shareId" element={<SharedProfile />} />
+            <Route path="/consent/:consentId" element={<CandidateConsentPage />} />
+
 
 
         {/* Protected Routes */}
@@ -122,8 +199,13 @@ function App() {
             {/* Password Change */}
             <Route path="/password" element={<PasswordChange />} />
 
+              {/* Global Super Admin */}
+                 <Route path="/verifications" element={<VerificationHubPage />} />
+            <Route path="/verifications/:verificationType" element={<VerificationTypeDashboardPage />} />
+            <Route path="/verifications/:verificationType/:organizationId" element={<OrganizationVerificationReportPage />} />
+            
             {/* <Route path="/employees" element={<Employee/>} /> */}
-            <Route path="/projects" element={<Clients />} />
+            <Route path="/projects" element={<ProjectManagement />} />
             <Route path="/client/:id" element={<ClientDashboard />} />
             <Route path="/project/:id" element={<ProjectDashboard />} />
 
@@ -150,7 +232,7 @@ function App() {
 
                         {/* Client Dashboard (New) */}
                         <Route path="/clients" element={<ClientManagementDashboard />} />
-            <Route path="/client-dashboard/:clientName/candidates" element={<ClientCandidatesView />} />
+            <Route path="/client-dashboard/:clientName/candidates" element={<ClientNew />} />
             <Route path="/client-metrics" element={<ClientMetricsDashboard />} />
 
             {/* Goals */}
@@ -161,15 +243,27 @@ function App() {
             <Route path="/goals/:goalId/:goalType?" element={<GoalDetailView />} />
 
             {/* Jobs */}
-            <Route path="/jobs" element={<Jobs />} />
-            <Route path="/jobs/:id" element={<JobView />} />
+            <Route path="/jobs" element={<JobRouteHandler />} />
+            <Route path="/jobs/:id" element={<JobViewRouteHandler />} />
             <Route path="/resume-analysis/:candidateId" element={<ResumeAnalysisDetailView />} />
             <Route path="/jobs/:id/description" element={<JobDescription />} />
             <Route path="/jobs/edit/:id" element={<JobDescription />} />
             <Route path="/jobstatuses" element={<StatusSettings />} />
             <Route path="/employee/:candidateId/:jobId" element={<EmployeeProfilePage />} />
 
+            <Route path="/jobs/:jobId/candidate/:candidateId/bgv" element={<CandidateBgvProfilePage />} />
+            <Route path="/all-candidates" element={<AllCandidatesPage />} /> 
 
+            {/* Candidates */}
+            <Route path="/talent-pool" element={<TalentPoolPage />} />
+            <Route path="/talent-pool/:candidateId" element={<CandidateProfilePage />} />
+
+             <Route path="/migrated-talent-pool" element={<MigratedTalentPoolPage />} />
+          <Route path="/migrated-talent-pool/:candidateId" element={<MigratedCandidateProfilePage />} />
+
+{/* Zive-X */}
+<Route path="/zive-x" element={<ZiveXSearchPage />} />
+<Route path="/zive-x-search/results" element={<ZiveXResultsPage />} />
 
                         {/* Reports */}
         <Route path="/reports" element={<ReportsPage />} />
@@ -189,9 +283,13 @@ function App() {
 
           {/* Sales Companies and Contacts */}
           <Route path="/companies" element={<CompaniesPage />} />
-          <Route path="/contacts" element={<ContactsPage />} />
+           <Route path="/companies/file/:fileId" element={<CompaniesPage />} />
+          <Route path="/contacts" element={<TanstackContactsPage />} />
+          <Route path="/contacts/kanban" element={<KanbanView />} />
           <Route path="/companies/:id" element={<CompanyDetail />} />
           <Route path="/companies/:id/edit" element={<CompanyEdit />} />
+          <Route path="/lists" element={<ListsPage />} />
+          <Route path="/contacts/file/:fileId" element={<TanstackContactsPage />} />
 
           {/* TimeTracker, Timesheet, Attendance and Leave */}
             {/* Employee routes */}
