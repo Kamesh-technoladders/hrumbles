@@ -166,7 +166,8 @@ export interface JobData {
   };
   candidate_count?: { count: number } | null;
   hr_budget?: string;          
-  hr_budget_type?: string;     
+  hr_budget_type?: string;    
+  hr_job_candidates: { name: string }[];  
 }
 
 // src/lib/types.ts
@@ -215,6 +216,7 @@ export interface Candidate {
   status?: string;
   sub_status?: { id: string; name: string; type: string; color: string; parent_id: string };
   sub_status_id?: string;
+    career_experience?: CareerExperience[]; 
 }
 
 export enum CandidateStatus {
@@ -231,3 +233,10 @@ export enum CandidateStatus {
 }
 
 
+// --- ADD THIS INTERFACE ---
+export interface CareerExperience {
+  company: string;
+  designation: string;
+  start_date: string;
+  end_date: string;
+}

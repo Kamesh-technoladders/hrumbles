@@ -239,13 +239,18 @@ export const CalendarCard: React.FC<CalendarCardProps> = ({ employeeId, isHumanR
 
   useEffect(() => {
     const fetchData = async () => {
+      // Ensure we don't run if the organizationId is not yet available
+      if (!organizationId) {
+        setIsLoading(false);
+        return;
+      }
+
       try {
         setIsLoading(true);
-        console.log('Fetching data for employeeId:', employeeId, 'isHumanResourceEmployee:', isHumanResourceEmployee, 'role:', role);
+        console.log('Fetching data for employeeId:', employeeId, 'role:', role, 'organizationId:', organizationId);
 
         let fullName = '';
         if (role !== 'organization_superadmin') {
-          // Fetch employee data for non-superadmin users
           const { data: employeeData, error: employeeError } = await supabase
             .from('hr_employees')
             .select('first_name, last_name')
@@ -255,41 +260,54 @@ export const CalendarCard: React.FC<CalendarCardProps> = ({ employeeId, isHumanR
           if (employeeError || !employeeData) {
             throw new Error(`Employee fetch failed: ${employeeError?.message || 'No employee found'}`);
           }
-
           fullName = `${employeeData.first_name} ${employeeData.last_name}`;
-          console.log('Employee Full Name:', fullName);
         }
 
-        // Fetch interview dates
+        // Fetch interview dates dynamically
         if (isHumanResourceEmployee || role === 'organization_superadmin') {
-          const query = supabase
-            .from('hr_job_candidates')
-            .select('interview_date')
-            .eq('main_status_id', 'f72e13f8-7825-4793-85e0-e31d669f8097')
-            .not('interview_date', 'is', null)
-            .eq('organization_id', organizationId);
+          // 1. Fetch the dynamic status ID for "Interview" for the current organization
+          const { data: statusData, error: statusError } = await supabase
+            .from("job_statuses")
+            .select("id")
+            .eq("organization_id", organizationId)
+            .in("name", ["Interview", "Interviews"]) // Handles both singular and plural names
+            .single();
 
+          if (statusError) {
+            // It's better to log a warning and continue than to crash the whole component
+            console.warn("Could not find the interview status for this organization.", statusError);
+            setInterviewDates([]); // Set to empty and proceed
+          } else if (statusData) {
+            const interviewStatusId = statusData.id;
 
-          if (role !== 'organization_superadmin') {
-            query.eq('applied_from', fullName);
+            // 2. Build the main query using the dynamic status ID
+            const query = supabase
+              .from('hr_job_candidates')
+              .select('interview_date')
+              .eq('main_status_id', interviewStatusId) // <-- USE THE DYNAMIC ID HERE
+              .not('interview_date', 'is', null)
+              .eq('organization_id', organizationId);
+
+            if (role !== 'organization_superadmin') {
+              query.eq('applied_from', fullName);
+            }
+
+            const { data: candidatesData, error: candidatesError } = await query;
+
+            if (candidatesError) {
+              throw new Error(`Candidates fetch failed: ${candidatesError.message}`);
+            }
+
+            const interviewDatesData = candidatesData.map(candidate => candidate.interview_date);
+            setInterviewDates(interviewDatesData);
           }
-
-          const { data: candidatesData, error: candidatesError } = await query;
-
-          if (candidatesError) {
-            throw new Error(`Candidates fetch failed: ${candidatesError.message}`);
-          }
-
-          const interviewDatesData = candidatesData.map(candidate => candidate.interview_date);
-          console.log('Interview Dates:', interviewDatesData);
-          setInterviewDates(interviewDatesData);
         } else {
           setInterviewDates([]);
         }
 
         // Fetch public holidays from Google Calendar API
         const year = 2025;
-        const apiKey = import.meta.env.VITE_GOOGLE_API_KEY || 'AIzaSyCZjuVaeOKuABcXC9l84XRTUTv27U2toCs';
+        const apiKey = import.meta.env.VITE_GOOGLE_CALENDAR_KEY;
         const calendarId = 'in.indian%23holiday@group.v.calendar.google.com';
         const timeMin = `${year}-01-01T00:00:00Z`;
         const timeMax = `${year}-12-31T23:59:59Z`;

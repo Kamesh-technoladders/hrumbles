@@ -2,12 +2,14 @@
 // App.jsx (Modified for Redux)
 
 import { useEffect } from "react";
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import { useDispatch } from "react-redux";
+import { BrowserRouter as Router, Routes, Route, useLocation } from "react-router-dom";
+import ReactGA from 'react-ga4';
+import { useDispatch, useSelector } from "react-redux";
 
 // Import the Redux action and the utility
 import { setOrganization } from "./Redux/organizationSlice";
 import { getOrganizationSubdomain } from "./utils/subdomain";
+import { fetchFirmOrganizationDetails } from "./Redux/firmOrganizationSlice";
 
 // Import your pages
 import DomainVerificationPage from "./pages/DomainVerificationPage";
@@ -18,9 +20,11 @@ import PrivateRoutes from "./utils/PrivateRoutes";
 
 // Global Superadmin
 import GlobalSuperadminDashboard from "./pages/Global_Dashboard";
+import SingleOrganizationDashboard from "./components/global/SingleOrganizationDashboard";
 import VerificationHubPage from "./pages/verifications/VerificationHubPage";
 import VerificationTypeDashboardPage from "./pages/verifications/VerificationTypeDashboardPage";
 import OrganizationVerificationReportPage from "./pages/verifications/OrganizationVerificationReportPage";
+import DetailedResourceView from './components/global/DetailedResourceView';
 
 
 import MainLayout from "./layouts/MainLayout";
@@ -32,6 +36,7 @@ import Clients from "./pages/Client";
 import ClientDashboard from "./components/Client/ClientDashboard";
 import ProjectDashboard from "./components/Client/ProjectDashboard";
 import ProjectManagement from "./pages/clients/ProjectManagement";
+import EmployeeProjectLogDetails from "./components/Client/EmployeeProjectLogDetails"; 
 import Index from "./pages/Index";
 
 // Password change
@@ -132,10 +137,38 @@ import LeavePolicies from "./pages/TimeManagement/admin/LeavePolicies";
 import Holidays from "./pages/TimeManagement/admin/Holidays";
 import Projects from "./pages/TimeManagement/admin/Projects";
 
+
+// --- START: Google Analytics Integration (Step 2) ---
+// This component listens for route changes and sends a pageview to GA.
+const RouteChangeTracker = () => {
+  const location = useLocation();
+
+  useEffect(() => {
+    // The line below sends a pageview event to Google Analytics
+    ReactGA.send({ hitType: "pageview", page: location.pathname + location.search });
+  }, [location]); // The effect re-runs every time the location changes
+
+  return null; // This component does not render anything.
+};
+// --- END: Google Analytics Integration (Step 2) ---
+
 function App() {
 
   const organizationSubdomain = getOrganizationSubdomain();
+  const organizationId = useSelector((state) => state.auth.organization_id);
+  const firmOrgStatus = useSelector((state) => state.firmOrganization.status);
   const dispatch = useDispatch();
+
+   useEffect(() => {
+    // This condition is key:
+    // - We must have an organizationId to fetch.
+    // - We only fetch if the status is 'idle' (meaning we haven't tried yet).
+    // This prevents re-fetching on every page navigation.
+    if (organizationId && firmOrgStatus === 'idle') {
+      dispatch(fetchFirmOrganizationDetails(organizationId));
+    }
+  }, [organizationId, firmOrgStatus, dispatch]); // Dependencies for the effect
+  // --- END: New logic ---
 
   useEffect(() => {
     // If a subdomain is found, dispatch it to the Redux store.
@@ -149,6 +182,9 @@ function App() {
   if (!organizationSubdomain) {
     return (
       <Router>
+          {/* --- START: Google Analytics Integration (Step 3) --- */}
+        <RouteChangeTracker />
+        {/* --- END: Google Analytics Integration (Step 3) --- */}
         <Routes>
           <Route path="*" element={<DomainVerificationPage />} />
         </Routes>
@@ -158,6 +194,9 @@ function App() {
 
   return (
     <Router>
+      {/* --- START: Google Analytics Integration (Step 3) --- */}
+      <RouteChangeTracker />
+      {/* --- END: Google Analytics Integration (Step 3) --- */}
       <Routes>
         {/* Public Routes */}
         <Route path="/" element={<Login />} />
@@ -200,22 +239,28 @@ function App() {
             <Route path="/password" element={<PasswordChange />} />
 
               {/* Global Super Admin */}
-                 <Route path="/verifications" element={<VerificationHubPage />} />
+            <Route path="/organization" element={<GlobalSuperadminDashboard />} />
+            <Route path="/organization/:organizationId" element={<SingleOrganizationDashboard />} />
+            <Route path="/verifications" element={<VerificationHubPage />} />
             <Route path="/verifications/:verificationType" element={<VerificationTypeDashboardPage />} />
             <Route path="/verifications/:verificationType/:organizationId" element={<OrganizationVerificationReportPage />} />
+            <Route path="/organization/:organizationId/users" element={<DetailedResourceView resourceType="users" />} />
+            <Route path="/organization/:organizationId/talent" element={<DetailedResourceView resourceType="talent" />} /> 
+            <Route path="/organization/:organizationId/roles" element={<DetailedResourceView resourceType="roles" />} />
             
             {/* <Route path="/employees" element={<Employee/>} /> */}
             <Route path="/projects" element={<ProjectManagement />} />
             <Route path="/client/:id" element={<ClientDashboard />} />
             <Route path="/project/:id" element={<ProjectDashboard />} />
+            <Route
+  path="/project/:projectId/employee/:employeeId/details"
+  element={<EmployeeProjectLogDetails />}
+/>
 
 {/* User management */}
 
             <Route path="/user-management" element={<UserManagement />} />
-            <Route
-              path="/organization"
-              element={<GlobalSuperadminDashboard />}
-            />
+           
 
             {/* Employee */}
 

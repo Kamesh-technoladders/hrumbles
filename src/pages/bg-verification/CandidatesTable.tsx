@@ -49,13 +49,13 @@ const renderVerificationResult = (verification: any) => {
   switch (status) {
     case 1:
     case 1014:
+    case 1013:
     case 1022:
       return <Badge className="bg-green-100 text-green-800">Verified</Badge>;
     case 9:
     case 1015:
       return <Badge className='bg-amber-100 text-amber-800'>Not Found</Badge>;
-    default:
-      return <Badge variant="secondary">In Progress</Badge>;
+   
   }
 };
 
@@ -86,9 +86,9 @@ export const CandidatesTable = ({ candidates, organizationId, onAssignClick }: P
           <TableBody className="divide-y">
             {candidates.length === 0 && <TableRow><TableCell colSpan={7} className="text-center h-24">No candidates found.</TableCell></TableRow>}
             {candidates.map(candidate => {
-              const candidateProfilePath = organizationId === ASCENDION_ORGANIZATION_ID
-                ? `/jobs/${candidate.job_id}/candidate/${candidate.id}/bgv`
-                : `/employee/${candidate.id}/${candidate.job_id}`;
+              const candidateProfilePath = candidate.job_id
+                ? `/jobs/unassigned/candidate/${candidate.id}/bgv`
+                : `/jobs/unassigned/candidate/${candidate.id}/bgv`;
 
               const verification = candidate.latest_verification;
               const verifiedBy = verification?.user ? `${verification.user.first_name} ${verification.user.last_name}` : 'N/A';

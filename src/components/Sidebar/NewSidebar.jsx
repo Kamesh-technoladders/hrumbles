@@ -30,12 +30,12 @@ const MenuItem = ({ item, isExpanded, location, openDropdown, handleDropdownTogg
   const isActive = location.pathname === path || (dropdown && dropdown.some(sub => location.pathname.startsWith(sub.path)));
   const isDropdownOpen = openDropdown === label;
 
-  const hoverBg = "#4A5568";
+  const hoverBg = "#b9b7f8ff";
   const activeBg = "#7B43F1";
   const activeColor = "white";
-  const textColor = "white";
-  const iconColor = "white";
-  const hoverTextColor = "#CBD5E0";
+  const textColor = "black";
+  const iconColor = "black";
+  const hoverTextColor = "black";
 
   return (
     <Box key={label} w="full">
@@ -48,19 +48,20 @@ const MenuItem = ({ item, isExpanded, location, openDropdown, handleDropdownTogg
           borderRadius="lg"
           role="group"
           cursor="pointer"
+          justify={isExpanded ? "flex-start" : "center"}
           bg={isActive ? activeBg : "transparent"}
           color={isActive ? activeColor : textColor}
           _hover={{ bg: !isActive && hoverBg, color: !isActive && hoverTextColor }}
-          transition="background 0.2s, color 0.2s"
+          transition="background 0.1s, color 0.1s"
           onClick={(e) => {
             if (dropdown) {
               handleDropdownToggle(label, e);
             }
           }}
         >
-          <Icon as={icon} fontSize="22px" color={isActive ? activeColor : iconColor} _groupHover={{ color: hoverTextColor }} />
+          <Icon as={icon} fontSize="16px" color={isActive ? activeColor : iconColor} _groupHover={{ color: hoverTextColor }} />
           {isExpanded && (
-            <Flex justify="space-between" align="center" w="full" ml={4}>
+            <Flex justify="space-between" align="center" w="full" ml={4} >
               <Text fontWeight="medium">{label}</Text>
               {dropdown && (
                 <Icon
@@ -108,6 +109,10 @@ const NewSidebar = ({ isExpanded, toggleSidebar }) => {
   const { role, user } = useSelector((state) => state.auth);
   const organizationId = useSelector((state) => state.auth.organization_id);
 
+    const [organizationDetails, setOrganizationDetails] = useState(null);
+
+    console.log("organizationDetails", organizationDetails);
+
   const [departmentName, setDepartmentName] = useState("Unknown Department");
   const [designationName, setDesignationName] = useState("Unknown Designation"); // New state for designation
   const [openDropdown, setOpenDropdown] = useState(null);
@@ -115,10 +120,10 @@ const NewSidebar = ({ isExpanded, toggleSidebar }) => {
   const [employeeProfile, setEmployeeProfile] = useState(null);
   const { isOpen: isProfileMenuOpen, onToggle: toggleProfileMenu } = useDisclosure();
 
-  const bgColor = "#364153";
-  const activeBg = "#7B43F1";
-  const hoverBg = "#4A5568";
-  const textColor = "white";
+  const bgColor = "#ffffffff";
+  const activeBg = "#ffffffff";
+  const hoverBg = "#eee7f1dd";
+  const textColor = "black";
 
   const [activeSuite, setActiveSuite] = useState(() => {
     return localStorage.getItem('activeSuite') || null;
@@ -126,17 +131,45 @@ const NewSidebar = ({ isExpanded, toggleSidebar }) => {
 
   console.log("designatookkmj", designationName);
 
+   // --- START: New useEffect to fetch organization details ---
+  useEffect(() => {
+    const fetchOrganizationDetails = async () => {
+      // Only run this fetch if the user is an org superadmin and has an org ID
+      if (role === 'organization_superadmin' && organizationId) {
+        try {
+          const { data, error } = await supabase
+            .from('hr_organizations')
+            .select('id, is_recruitment_firm') // Select only the needed fields
+            .eq('id', organizationId)
+            .single();
+
+          if (error) {
+            throw error;
+          }
+          
+          setOrganizationDetails(data);
+        } catch (error) {
+          console.error("Error fetching organization details:", error.message);
+          setOrganizationDetails(null); // Reset on error to prevent crashes
+        }
+      }
+    };
+
+    fetchOrganizationDetails();
+  }, [role, organizationId]); // Re-run if role or organizationId changes
+  // --- END: New useEffect ---
+
   const menuConfig = (() => {
     const menuSource = menuItemsByRole[role];
     if (!menuSource) return [];
 
     switch (role) {
       case 'organization_superadmin':
-        return menuSource(organizationId); // Pass the organizationId
+       return organizationDetails ? menuSource(organizationId ,organizationDetails) : [];
       case 'admin':
         return menuSource(departmentName);
       case 'employee':
-        return menuSource(departmentName, designationName);
+        return menuSource(departmentName, designationName, user?.id);
       default:
         return menuSource;
     }
@@ -273,8 +306,8 @@ const NewSidebar = ({ isExpanded, toggleSidebar }) => {
       bg={bgColor}
       color={textColor}
       height="100vh"
-      width={isExpanded ? "250px" : "80px"}
-      transition="width 0.2s ease-in-out"
+      width={isExpanded ? "210px" : "74px"}
+      transition="width 0.1s ease-in-out"
       position="fixed"
       left={0}
       top={0}
@@ -282,10 +315,14 @@ const NewSidebar = ({ isExpanded, toggleSidebar }) => {
       zIndex={20}
     >
       <Flex align="center" mb={8} minH="40px" px={isExpanded ? 0 : 1}>
-        {isExpanded && <Image src="/hrumbles-wave-white.svg" alt="Logo" width="160px" />}
+        {isExpanded && <Image className="mt-4" src="/1-cropped.svg" alt="Logo" width="120px" />}
+        {!isExpanded && <Image src="/hrumbles-fav-blue-cropped.svg" alt="Logo" width="30px"  />}
+
         <Spacer />
         {!isMobile && (
           <IconButton
+          marginTop={3}
+            fontSize={isExpanded ? "18px" : "8px"}
             aria-label="Toggle Sidebar"
             icon={<Icon as={isExpanded ? ArrowLeftToLine : ArrowRightFromLine} />}
             variant="ghost"
@@ -305,10 +342,10 @@ const NewSidebar = ({ isExpanded, toggleSidebar }) => {
         css={{ "&::-webkit-scrollbar": { display: "none" }, "scrollbar-width": "none" }}
       >
         {isCategorized && isExpanded && (
-          <Text px={3} py={2} fontSize="sm" fontWeight="bold" color="gray.400">
+          <Text px={3} py={2} fontSize="lg" fontWeight="bold" color="black">
             {activeSuite || "Select a Suite"}
           </Text>
-        )}
+        )}a
         {itemsToRender.length > 0 ? (
           itemsToRender.map((item) => (
             <MenuItem
@@ -328,7 +365,7 @@ const NewSidebar = ({ isExpanded, toggleSidebar }) => {
       </VStack>
 
       <VStack spacing={2} align="stretch" mt={4}>
-        {isExpanded && (
+        {/* {isExpanded && (
           <Box>
             <Flex
               align="center"
@@ -346,37 +383,57 @@ const NewSidebar = ({ isExpanded, toggleSidebar }) => {
             </Flex>
             <Collapse in={isProfileMenuOpen} animateOpacity>
               <VStack align="stretch" spacing={1} mt={2} pl={2}>
-                {/* {departmentName !== "Finance" && (
+                {departmentName !== "Finance" && (
                   <Text as={Link} to="/profile" p={2} borderRadius="md" _hover={{ bg: hoverBg }}>
                     My Profile
                   </Text>
-                )} */}
+                )}
                 <Text onClick={handleLogout} p={2} borderRadius="md" cursor="pointer" _hover={{bg: hoverBg}}>
                   Logout
                 </Text>
               </VStack>
             </Collapse>
           </Box>
-        )}
+        )} */}
 
         {isCategorized && (
           <HStack
             justify="center"
-            spacing={isExpanded ? 4 : 2}
+            spacing={isExpanded ? 4 : 0}
             p={isExpanded ? 2 : 1}
             borderRadius="lg"
-            bg="rgba(0,0,0,0.2)"
+            bg="#7B43F1"
           >
             {(isExpanded ? menuConfig : menuConfig.filter(s => s.title === activeSuite)).map((suite) => (
-              <Tooltip key={suite.title} label={suite.title} placement="top" isDisabled={isExpanded}>
+              <Tooltip
+        key={suite.title}
+        label={
+          suite.title.charAt(0).toUpperCase() +
+          suite.title.slice(1).toLowerCase()
+        }
+        placement="top"
+        hasArrow
+        bg="gray.700"
+        color="white"
+        fontSize="xs"
+        p={1}
+        borderRadius="sm"
+      >
                 <IconButton
                   aria-label={suite.title}
-                  icon={<Icon as={suite.icon} fontSize="20px" />}
+                   icon={
+            <Icon
+              as={suite.icon}
+              fontSize={suite.title === "PROJECT SUITE" ? "20px" : "16px"}
+            />
+          }
                   isRound
-                  size="md"
+                  size="sm"
                   bg={activeSuite === suite.title ? activeBg : 'transparent'}
-                  color="white"
-                  _hover={{ bg: activeSuite !== suite.title && hoverBg }}
+                  color={activeSuite === suite.title ? 'black' : 'white'}
+                  _hover={{
+    bg: activeSuite !== suite.title ? hoverBg : activeBg,color: 'black', // 👈 make icon text white on hover
+  }}
                   onClick={() => handleSuiteChange(suite.title)}
                   flex="1"
                 />

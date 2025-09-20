@@ -1,12 +1,14 @@
 // src/components/global/OrganizationManagement/CreateOrganizationModal.tsx
 
-import { useState, FC, ChangeEvent } from "react";
+import { useState, useEffect, FC, ChangeEvent } from "react";
+
 import {
   Modal, ModalOverlay, ModalContent, ModalHeader, ModalFooter, ModalBody, ModalCloseButton,
   FormControl, FormLabel, Input, VStack, Button, useToast, NumberInput,
-  NumberInputField, Divider, Heading, Flex
+  NumberInputField, Divider, Heading, Flex, Select, Checkbox
 } from "@chakra-ui/react";
-import { createOrganizationWithSuperadmin } from "../../../utils/api";
+import { createOrganizationWithSuperadmin, getAvailableRoles } from "../../../utils/api";
+
 import PhoneInput, { E164Number } from "react-phone-number-input";
 import "react-phone-number-input/style.css"; // Don't forget the CSS
 
@@ -16,6 +18,11 @@ interface CreateOrganizationModalProps {
   onSuccess: () => void;
 }
 
+interface Role {
+  id: string;
+  name: string;
+}
+
 const CreateOrganizationModal: FC<CreateOrganizationModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const [adminDetails, setAdminDetails] = useState({
     firstName: "", lastName: "", email: "", password: ""
@@ -23,13 +30,36 @@ const CreateOrganizationModal: FC<CreateOrganizationModalProps> = ({ isOpen, onC
   const [phone, setPhone] = useState<E164Number | undefined>();
   const [organizationName, setOrganizationName] = useState<string>("");
   const [subdomain, setSubdomain] = useState<string>("");
+  const [role, setRole] = useState<string>(""); // State for selected role
+    const [employeeId, setEmployeeId] = useState<string>(""); 
+  const [isRecruitmentFirm, setIsRecruitmentFirm] = useState<boolean>(false);
+  const [roles, setRoles] = useState<Role[]>([]);
   const [roleLimits, setRoleLimits] = useState({
     organization_superadmin: 1,
-    admin: 5,
-    employee: 20
+    admin: 0,
+    employee: 0
   });
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const toast = useToast();
+
+  // Fetch available roles on component mount
+  useEffect(() => {
+    const fetchRoles = async () => {
+      try {
+        const availableRoles = await getAvailableRoles();
+        setRoles(availableRoles);
+      } catch (error: any) {
+        toast({
+          title: "Error Fetching Roles",
+          description: error.message,
+          status: "error",
+          duration: 5000,
+          isClosable: true,
+        });
+      }
+    };
+    fetchRoles();
+  }, [toast]);
 
   const handleAdminChange = (e: ChangeEvent<HTMLInputElement>) => {
     setAdminDetails({ ...adminDetails, [e.target.name]: e.target.value });
@@ -40,14 +70,32 @@ const CreateOrganizationModal: FC<CreateOrganizationModalProps> = ({ isOpen, onC
   };
 
   const handleCreate = async () => {
+    // Validate required fields
+    if (!organizationName || !subdomain || !adminDetails.email || !adminDetails.password || !adminDetails.firstName || !adminDetails.lastName || !role || !employeeId) {
+      toast({
+        title: "Validation Error",
+        description: "Please fill in all required fields, including the role.",
+        status: "error",
+        duration: 5000,
+        isClosable: true,
+      });
+      return;
+    }
+
     setIsLoading(true);
     try {
-      // IMPORTANT: You must update your API function to accept the subdomain.
       await createOrganizationWithSuperadmin(
+        adminDetails.email,
+        adminDetails.password,
+        adminDetails.firstName,
+        adminDetails.lastName,
         organizationName,
-        subdomain, // Pass the new subdomain
+        role, // Pass selected role
+        phone,
+        subdomain,
         roleLimits,
-        {...adminDetails, phoneNo: phone}
+        employeeId, // Pass employeeId
+        isRecruitmentFirm // Pass isRecruitmentFirm
       );
       toast({
         title: "Organization Created",
@@ -114,13 +162,27 @@ const CreateOrganizationModal: FC<CreateOrganizationModalProps> = ({ isOpen, onC
               </Flex>
             </FormControl>
 
+             <FormControl>
+                <Checkbox 
+                    isChecked={isRecruitmentFirm}
+                    onChange={(e) => setIsRecruitmentFirm(e.target.checked)}
+                >
+                    Is this a Recruitment Firm?
+                </Checkbox>
+            </FormControl>
+
             <Divider my={2} />
             <Heading size="sm" color="gray.600">Superadmin User Details</Heading>
             <Flex gap={4}>
               <FormControl isRequired><FormLabel fontSize="sm">First Name</FormLabel><Input name="firstName" value={adminDetails.firstName} onChange={handleAdminChange} /></FormControl>
               <FormControl isRequired><FormLabel fontSize="sm">Last Name</FormLabel><Input name="lastName" value={adminDetails.lastName} onChange={handleAdminChange} /></FormControl>
             </Flex>
+            <FormControl isRequired>
+                <FormLabel fontSize="sm">Employee ID</FormLabel>
+                <Input value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} placeholder="e.g., EMP001" />
+              </FormControl>
              <FormControl isRequired><FormLabel fontSize="sm">Email</FormLabel><Input name="email" type="email" value={adminDetails.email} onChange={handleAdminChange} /></FormControl>
+             
             <Flex gap={4}>
               <FormControl isRequired><FormLabel fontSize="sm">Password</FormLabel><Input name="password" type="password" value={adminDetails.password} onChange={handleAdminChange} /></FormControl>
               <FormControl><FormLabel fontSize="sm">Phone Number</FormLabel>
@@ -133,6 +195,14 @@ const CreateOrganizationModal: FC<CreateOrganizationModalProps> = ({ isOpen, onC
                 />
               </FormControl>
             </Flex>
+            <FormControl isRequired>
+              <FormLabel fontSize="sm">Role</FormLabel>
+              <Select placeholder="Select Role" value={role} onChange={(e) => setRole(e.target.value)}>
+                {roles.map((r) => (
+                  <option key={r.id} value={r.name}>{r.name}</option>
+                ))}
+              </Select>
+            </FormControl>
           </VStack>
         </ModalBody>
         <ModalFooter>
