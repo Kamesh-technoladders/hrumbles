@@ -16,17 +16,19 @@ import {
   TableRow,
 } from "@/components/jobs/ui/table";
 import {
-   Tooltip as ShadTooltip,
+   Tooltip ,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/jobs/ui/tooltip";
 import { StatusSelector } from "./StatusSelector";
+import { TaskupStatusSelector } from "./TaskupStatusSelector";
 import { ItechStatusSelector } from "./ItechStatusSelector";
 import ValidateResumeButton from "./candidate/ValidateResumeButton";
 import StageProgress from "./candidate/StageProgress";
 import EmptyState from "./candidate/EmptyState";
-import { Pencil, Eye, Download, FileText, Phone, Calendar, User, ChevronLeft, ChevronRight, EyeOff, Copy, Check, PhoneOff, MailOpen, Mail, Contact, Clock, MessageSquare, Notebook } from "lucide-react";
+import { Pencil,Bot,Sparkles, UserSearch, Eye, Download, FileText, Phone, Calendar, User, ChevronLeft, ChevronRight, Copy, Check, Mail, MessageSquare, Notebook, Linkedin } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 import EditCandidateDrawer from "@/components/jobs/job/candidate/EditCandidateDrawer";
 import { getJobById } from "@/services/jobService";
@@ -68,9 +70,22 @@ import { format, isValid } from 'date-fns';
 import { getRoundNameFromResult } from "@/utils/statusTransitionHelper";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
-
+import { Avatar, AvatarFallback } from "@/components/jobs/ui/avatar";
+import { motion } from "framer-motion";
+import { TaskupActionModal, TaskupModalConfig } from './TaskupActionModal';
 
 const VALIDATION_QUEUE_KEY = "validationQueue";
+
+
+const getInitials = (name: string = "") => {
+  if (!name) return "NA";
+  const nameParts = name.trim().split(' ');
+  const firstName = nameParts[0] || "";
+  const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : "";
+  return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
+};
+
+
 
 interface CandidatesListProps {
   jobId: string;
@@ -81,6 +96,7 @@ interface CandidatesListProps {
   onRefresh: () => Promise<void>;
   isCareerPage?: boolean;
   scoreFilter?: string;
+  candidateFilter?: "All" | "Yours";
    rejection_reason?: string; 
 }
 
@@ -101,6 +117,7 @@ const CandidatesList = forwardRef((props: CandidatesListProps, ref) => {
     jobdescription,
     onRefresh,
     scoreFilter = "all",
+    candidateFilter = "All",
     isCareerPage = false
   } = props;
   const navigate = useNavigate();
@@ -108,13 +125,81 @@ const CandidatesList = forwardRef((props: CandidatesListProps, ref) => {
   const organizationId = useSelector((state: any) => state.auth.organization_id);
   const userRole = useSelector((state: any) => state.auth.role);
   const isEmployee = userRole === 'employee';
+    // ADD NEW STATE FOR THE TASKUP MODAL
+  const [isTaskupActionModalOpen, setIsTaskupActionModalOpen] = useState(false);
+  const [taskupModalConfig, setTaskupModalConfig] = useState<TaskupModalConfig | null>(null);
 
   const ITECH_ORGANIZATION_ID = [
   "1961d419-1272-4371-8dc7-63a4ec71be83",
   "4d57d118-d3a2-493c-8c3f-2cf1f3113fe9",
 ];
   const ASCENDION_ORGANIZATION_ID = "22068cb4-88fb-49e4-9fb8-4fa7ae9c23e5";
+  const TASKUP_ORGANIZATION_ID = "0e4318d8-b1a5-4606-b311-c56d7eec47ce";
 
+
+   const getInitials = (name: string = "") => {
+    if (!name) return "NA";
+    const nameParts = name.trim().split(' ');
+    const firstName = nameParts[0] || "";
+    const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : "";
+    return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
+  };
+
+const OwnerAvatarCell = ({ 
+  ownerName, 
+  createdAt, 
+  isEmployee, 
+  currentUserName 
+}: { 
+  ownerName: string, 
+  createdAt: string,
+  isEmployee: boolean,
+  currentUserName: string
+}) => {
+  if (!ownerName) {
+    return <TableCell><span className="text-gray-400 text-sm">N/A</span></TableCell>;
+  }
+
+  const displayName = isEmployee 
+    ? (ownerName === currentUserName ? ownerName : "Others") 
+    : ownerName;
+
+  const initials = getInitials(displayName);
+  const isOwnCandidate = isEmployee && ownerName === currentUserName;
+
+  return (
+    <TableCell>
+      <div className="flex items-center gap-2">
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Avatar className="h-8 w-8 cursor-pointer transition-transform duration-200 ease-in-out hover:scale-110">
+                <AvatarFallback className="bg-gradient-to-br from-purple-500 to-indigo-600 text-white font-semibold">
+                  {initials}
+                </AvatarFallback>
+              </Avatar>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>{displayName}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        
+        {/* {isOwnCandidate && (
+          <span className="h-2 w-2 rounded-full bg-green-500 inline-block" title="You added this candidate"></span>
+        )} */}
+        
+        {/* Display owner name and date in a column layout */}
+        {/* <div className="flex flex-col">
+          <span className="text-sm font-medium text-gray-900">{ownerName}</span>
+          <span className="text-xs text-muted-foreground whitespace-nowrap">
+            {moment(createdAt).format("DD MMM YYYY")} ({moment(createdAt).fromNow()})
+          </span>
+        </div> */}
+      </div>
+    </TableCell>
+  );
+};
 
     // ADDED: State for dynamic tabs
   const [mainStatuses, setMainStatuses] = useState<MainStatus[]>([]);
@@ -196,7 +281,7 @@ console.log('mainStatuses', mainStatuses)
   const [currentSubStatusId, setCurrentSubStatusId] = useState<string | null>(null);
   const [currentRound, setCurrentRound] = useState<string | null>(null);
   const [needsReschedule, setNeedsReschedule] = useState(false);
-  const [candidateFilter, setCandidateFilter] = useState<"All" | "Yours">("All"); // New filter state
+
 
   const [isTimelineModalOpen, setIsTimelineModalOpen] = useState(false);
 const [selectedCandidateForTimeline, setSelectedCandidateForTimeline] = useState<Candidate | null>(null);
@@ -443,12 +528,12 @@ const InterviewDetailsCell: React.FC<InterviewDetailsCellProps> = ({ candidate }
 
 useEffect(() => {
   const checkAnalysisData = async () => {
-    // No need to check candidatesData here, as the hook depends on it.
     if (!jobId) return;
     
     const { data, error } = await supabase
       .from("candidate_resume_analysis")
-      .select("candidate_id, summary, overall_score")
+      // 1. Add report_url to the query
+      .select("candidate_id, summary, overall_score, report_url") 
       .eq("job_id", jobId)
       .not("summary", "is", null);
 
@@ -461,13 +546,19 @@ useEffect(() => {
     const analysisDataTemp: { [key: string]: any } = {};
     data.forEach((item) => {
       availableData[item.candidate_id] = true;
-      analysisDataTemp[item.candidate_id] = { overall_score: item.overall_score };
+      // 2. Add the report_url to the data we store
+      analysisDataTemp[item.candidate_id] = { 
+        overall_score: item.overall_score,
+        report_url: item.report_url 
+      };
     });
 
     setAnalysisDataAvailable(availableData);
     setCandidateAnalysisData(prevData => {
       const hasNewData = Object.keys(analysisDataTemp).some(key => 
-        !prevData[key] || prevData[key].overall_score !== analysisDataTemp[key].overall_score
+        !prevData[key] || 
+        prevData[key].overall_score !== analysisDataTemp[key].overall_score ||
+        prevData[key].report_url !== analysisDataTemp[key].report_url
       );
       if (hasNewData) {
         return { ...prevData, ...analysisDataTemp };
@@ -477,7 +568,7 @@ useEffect(() => {
   };
 
   checkAnalysisData();
-}, [candidatesData, jobId]); // <-- CRITICAL CHANGE: Add candidatesData back to the dependency array
+}, [candidatesData, jobId]); 
 
  const fetchAnalysisData = async (candidateId: string) => {
   try {
@@ -632,7 +723,7 @@ const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 0, 
   }).format(amount);
 };
 
@@ -707,6 +798,7 @@ const candidates = useMemo(() => {
           skills: candidate.skillRatings || candidate.skills || [],
           email: candidate.email,
           phone: candidate.phone,
+          linkedin_url: candidate.linkedin_url, 
           resume: candidate.resumeUrl,
           appliedFrom: candidate.appliedFrom,
           currentSalary: candidate.currentSalary,
@@ -718,6 +810,7 @@ const candidates = useMemo(() => {
           currentStage: candidate.main_status?.name || "New Applicants",
           createdAt: candidate.created_at,
           hasValidatedResume: candidate.hasValidatedResume || false,
+          notice_period: candidate.notice_period, 
           main_status: candidate.main_status,
           sub_status: candidate.sub_status,
           main_status_id: candidate.main_status_id,
@@ -728,6 +821,7 @@ const candidates = useMemo(() => {
           interview_date: candidate.interview_date,
           interview_time: candidate.interview_time,
           interview_feedback: candidate.interview_feedback,
+          joining_date: candidate.joining_date, 
     };
     });
   }, [candidatesData, job, clientData, validatingIds]);
@@ -764,13 +858,16 @@ const candidates = useMemo(() => {
   }, [validatingIds, jobId]);
 
 
+// --- UPDATED handleStatusChange Function ---
+
   const handleStatusChange = async (value: string, candidate: Candidate) => {
     try {
       if (!value) {
         toast.error("Invalid status selected");
         return;
       }
-  
+
+      // This part is common: fetch statuses and set current state
       const statuses = await fetchAllStatuses();
       const subStatuses = statuses.flatMap(s => s.subStatuses || []);
       const newSubStatus = subStatuses.find(s => s.id === value);
@@ -780,7 +877,6 @@ const candidates = useMemo(() => {
         return;
       }
       
-      const newMainStatus = statuses.find(s => s.id === newSubStatus.parent_id);
       const oldSubStatusName = candidate.sub_status?.name;
       
       setCurrentCandidateId(candidate.id);
@@ -790,73 +886,111 @@ const candidates = useMemo(() => {
         name: newSubStatus.name,
         parentId: newSubStatus.parent_id,
       });
-  
-      const { getRequiredInteractionType, getInterviewRoundName } = await import('@/utils/statusTransitionHelper');
-      const interactionType = getRequiredInteractionType(oldSubStatusName, newSubStatus.name);
-      
-      if (interactionType === 'interview-schedule' || interactionType === 'reschedule') {
-        const roundName = getInterviewRoundName(newSubStatus.name);
-        setCurrentRound(roundName);
-        setNeedsReschedule(interactionType === 'reschedule');
-  
-        const { data: interviews, error } = await supabase
-          .from('hr_candidate_interviews')
-          .select('*')
-          .eq('candidate_id', candidate.id)
-          .eq('interview_round', roundName)
-          .order('created_at', { ascending: false })
-          .limit(1);
-          
-        if (error) {
-          console.error("Error fetching interview:", error);
-          toast.error("Failed to load interview details");
-          return;
+
+      const TASKUP_ORGANIZATION_ID = "0e4318d8-b1a5-4606-b311-c56d7eec47ce";
+
+      // DYNAMICALLY HANDLE LOGIC BASED ON ORGANIZATION
+    if (organizationId === TASKUP_ORGANIZATION_ID) {
+        const { getRequiredInteractionType } = await import('@/utils/taskupStatusTransitionHelper');
+        const interactionType = getRequiredInteractionType(oldSubStatusName, newSubStatus.name);
+
+        let config: TaskupModalConfig | null = null;
+        
+        switch(interactionType) {
+            case 'rejection-with-date':
+                config = { title: newSubStatus.name, description: 'Please provide the date and a reason for this status change.', fields: ['date', 'reason'] };
+                break;
+            case 'date-only':
+                config = { title: newSubStatus.name, description: 'Please provide the date for this action.', fields: ['date'] };
+                break;
+            case 'reason-only':
+            case 'feedback-only':
+                config = { title: newSubStatus.name, description: 'Please provide a reason or feedback.', fields: [interactionType === 'reason-only' ? 'reason' : 'feedback'] };
+                break;
+            case 'interview-schedule':
+                 config = { title: `Schedule: ${newSubStatus.name}`, description: 'Please provide the interview date and time.', fields: ['datetime'] };
+                 break;
+            case 'billing':
+                config = { title: newSubStatus.name, description: 'Please provide the date and reason for the pending status.', fields: ['date', 'billing_reason'] };
+                break;
         }
-  
-        if (interviews && interviews.length > 0) {
-          const interview = interviews[0];
-          setInterviewDate(interview.interview_date || '');
-          setInterviewTime(interview.interview_time || '');
-          setInterviewLocation(interview.location || 'Virtual');
-          setInterviewType(interview.interview_type || 'Technical');
-          setInterviewerName(interview.interviewers?.[0]?.name || '');
-        } else {
-          setInterviewDate('');
-          setInterviewTime('');
-          setInterviewLocation('Virtual');
-          setInterviewType('Technical');
-          setInterviewerName('');
+
+        if (config) {
+          setTaskupModalConfig(config);
+          setIsTaskupActionModalOpen(true);
+          return; // Stop execution to wait for modal submission
         }
-  
-        setShowInterviewModal(true);
-        return;
-      }
-      
-      if (interactionType === 'interview-feedback') {
-        const roundName = getRoundNameFromResult(newSubStatus.name);
-        if (roundName) {
+
+      } else {
+        // --- ORIGINAL LOGIC FOR ALL OTHER ORGANIZATIONS (Unaffected) ---
+        const { getRequiredInteractionType, getInterviewRoundName, getRoundNameFromResult } = await import('@/utils/statusTransitionHelper');
+        const interactionType = getRequiredInteractionType(oldSubStatusName, newSubStatus.name);
+        
+        if (interactionType === 'interview-schedule' || interactionType === 'reschedule') {
+          const roundName = getInterviewRoundName(newSubStatus.name);
           setCurrentRound(roundName);
-          setInterviewResult(newSubStatus.name.includes('Selected') ? 'selected' : 'rejected');
-          setShowInterviewFeedbackModal(true);
+          setNeedsReschedule(interactionType === 'reschedule');
+    
+          const { data: interviews, error } = await supabase
+            .from('hr_candidate_interviews')
+            .select('*')
+            .eq('candidate_id', candidate.id)
+            .eq('interview_round', roundName)
+            .order('created_at', { ascending: false })
+            .limit(1);
+            
+          if (error) {
+            console.error("Error fetching interview:", error);
+            toast.error("Failed to load interview details");
+            return;
+          }
+    
+          if (interviews && interviews.length > 0) {
+            const interview = interviews[0];
+            setInterviewDate(interview.interview_date || '');
+            setInterviewTime(interview.interview_time || '');
+            setInterviewLocation(interview.location || 'Virtual');
+            setInterviewType(interview.interview_type || 'Technical');
+            setInterviewerName(interview.interviewers?.[0]?.name || '');
+          } else {
+            setInterviewDate('');
+            setInterviewTime('');
+            setInterviewLocation('Virtual');
+            setInterviewType('Technical');
+            setInterviewerName('');
+          }
+    
+          setShowInterviewModal(true);
+          return;
+        }
+        
+        if (interactionType === 'interview-feedback') {
+          const roundName = getRoundNameFromResult(newSubStatus.name);
+          if (roundName) {
+            setCurrentRound(roundName);
+            setInterviewResult(newSubStatus.name.includes('Selected') ? 'selected' : 'rejected');
+            setShowInterviewFeedbackModal(true);
+            return;
+          }
+        }
+        
+        if (interactionType === 'joining') {
+          setShowJoiningModal(true);
+          return;
+        }
+    
+        if (interactionType === 'actual-ctc') {
+          setShowActualCtcModal(true);
+          return;
+        }
+        
+        if (interactionType === 'reject') {
+          setShowRejectModal(true);
           return;
         }
       }
-      
-      if (interactionType === 'joining') {
-        setShowJoiningModal(true);
-        return;
-      }
-  
-      if (interactionType === 'actual-ctc') {
-        setShowActualCtcModal(true);
-        return;
-      }
-      
-      if (interactionType === 'reject') {
-        setShowRejectModal(true);
-        return;
-      }
-      
+
+      // This is the default action if no modal is triggered. It works for both workflows.
       updateCandidateStatus(candidate.id, value, user?.id)
         .then(success => {
           if (success) {
@@ -870,9 +1004,55 @@ const candidates = useMemo(() => {
           console.error("Error updating status:", error);
           toast.error("Failed to update status");
         });
+
     } catch (error) {
       console.error("Error in handleStatusChange:", error);
-      toast.error("Failed to update status");
+      toast.error("An unexpected error occurred while changing status.");
+    }
+  };
+
+ const handleTaskupActionSubmit = async (data: Record<string, any>) => {
+    if (!currentCandidateId || !currentSubStatusId || !currentSubStatus) return;
+
+    // Create a mutable object for additional data
+    const additionalData = { ...data };
+
+    // --- SPECIAL DATA MAPPING LOGIC ---
+    // 1. If the new status is 'Submitted to Client', map the selected date to the 'submission_date' column.
+    if (currentSubStatus.name === 'Submitted to Client') {
+      additionalData.submission_date = data.action_date;
+    }
+
+    // 2. If the new status is 'Joined', map the selected date to the 'joining_date' column.
+    if (currentSubStatus.name === 'Joined') {
+      additionalData.joining_date = data.action_date;
+    }
+    
+    // 3. For interviews, map date & time correctly
+    if (data.interview_date || data.interview_time) {
+        additionalData.interview_date = data.interview_date;
+        additionalData.interview_time = data.interview_time;
+        // Also add other relevant interview fields for consistency if needed
+        additionalData.round = currentSubStatus.name;
+    }
+    // --- END OF SPECIAL LOGIC ---
+
+    try {
+      // Pass the enhanced 'additionalData' object to the update function
+      const success = await updateCandidateStatus(currentCandidateId, currentSubStatusId, user.id, additionalData);
+      
+      if (success) {
+        toast.success("Status updated successfully with details.");
+        onRefresh();
+      } else {
+        toast.error("Failed to update status.");
+      }
+    } catch (error) {
+      console.error("Error submitting Taskup action:", error);
+      toast.error("Failed to save details.");
+    } finally {
+      setIsTaskupActionModalOpen(false);
+      setTaskupModalConfig(null);
     }
   };
 
@@ -898,7 +1078,7 @@ const candidates = useMemo(() => {
       
       const jobTextId = jobData.job_id;
       const payload = { job_id: jobTextId, candidate_id: candidateId, resume_url: extractedResumeUrl, job_description: jobdescription, organization_id: organizationId, user_id: user.id };
-      
+
       const backendUrl = 'https://dev.hrumbles.ai/api/validate-candidate';
       const response = await fetch(backendUrl, { method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify(payload) });
 
@@ -919,7 +1099,8 @@ const candidates = useMemo(() => {
 // --- ADDED: Function to handle the batch validation process ---
   // --- ADDED: Function to handle the batch validation process ---
   const handleBatchValidate = async () => {
-    const unvalidatedCandidates = candidates.filter(c => !c.hasValidatedResume && !validatingIds.includes(c.id));
+   
+    const unvalidatedCandidates = paginatedCandidates.filter(c => !c.hasValidatedResume && !validatingIds.includes(c.id));
 
     if (unvalidatedCandidates.length === 0) {
       toast.info("All candidates have already been validated.");
@@ -933,10 +1114,9 @@ const candidates = useMemo(() => {
     setValidatingIds(prev => [...new Set([...prev, ...idsToValidate])]);
 
     // Process validations concurrently without stopping if one fails
-    await Promise.allSettled(
-      unvalidatedCandidates.map(candidate => handleValidateResume(candidate.id))
-    );
-
+   for (const candidate of unvalidatedCandidates) {
+      await handleValidateResume(candidate.id);
+    }
     toast.info("Batch validation process complete.");
   };
 
@@ -1130,12 +1310,12 @@ const candidates = useMemo(() => {
       filtered = filtered.filter(c => c.appliedFrom === "Candidate");
     }
 
-    if (candidateFilter === "Yours") {
-      const userFullName = `${user.user_metadata.first_name} ${user.user_metadata.last_name}`;
-      filtered = filtered.filter(
-        c => c.owner === userFullName || c.appliedFrom === userFullName
-      );
-    }
+if (candidateFilter === "Yours") { // Use prop directly
+    const userFullName = `${user.user_metadata.first_name} ${user.user_metadata.last_name}`;
+    filtered = filtered.filter(
+      c => c.owner === userFullName || c.appliedFrom === userFullName
+    );
+  }
     
     return filtered;
   }, [candidates, appliedCandidates, activeTab, statusFilters, statusFilter, isCareerPage, candidateFilter, scoreFilter, candidateAnalysisData, user]); // Added user to dependencies
@@ -1315,6 +1495,7 @@ const candidates = useMemo(() => {
     await onRefresh();
     toast.success("Interview feedback saved");
   };
+
 
   const handleJoiningSubmit = async () => {
     if (!currentCandidateId || !currentSubStatusId || !jobId) return;
@@ -1683,6 +1864,10 @@ const candidates = useMemo(() => {
     if (!email && !phone) {
       return <TableCell className="text-muted-foreground">N/A</TableCell>;
     }
+
+
+
+
   
     return (
       <TableCell>
@@ -1769,60 +1954,166 @@ const candidates = useMemo(() => {
     );
   };
 
+const getScoreColor = (score: number | null | undefined): string => {
+  if (score == null) return 'bg-gray-200 text-gray-600';
+  if (score > 80) return 'bg-gradient-to-br from-emerald-400 to-teal-600 text-white shadow-lg shadow-teal-500/30 border border-emerald-300';
+  if (score >= 75) return 'bg-gradient-to-br from-amber-400 to-orange-500 text-white shadow-lg shadow-orange-500/30 border border-amber-300';
+  return 'bg-gradient-to-br from-rose-500 to-red-600 text-white shadow-lg shadow-red-500/30 border border-rose-400';
+};
+
+
+const ContactIcon = ({ type, value }: { type: 'email' | 'phone'; value: string }) => {
+  const [justCopied, setJustCopied] = useState(false);
+
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent row click
+    navigator.clipboard.writeText(value);
+    setJustCopied(true);
+    toast.success(`${type.charAt(0).toUpperCase() + type.slice(1)} copied!`);
+    setTimeout(() => setJustCopied(false), 2000);
+  };
+
+  const icon = type === 'email' 
+    ? <Mail className="h-4 w-4" />
+    : <Phone className="h-4 w-4" />;
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild onClick={(e) => e.stopPropagation()}>
+        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-full text-slate-500 hover:bg-purple-600 hover:text-white transition-colors">
+          {icon}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-2" side="top" align="center">
+        <div className="flex items-center gap-2">
+          <span className="text-sm">{value}</span>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button onClick={handleCopy} className="p-1 rounded-md hover:bg-accent">
+                  {justCopied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent><p>Copy</p></TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+};
+
+const ScoreDisplay = ({ score, isValidated, isLoading, candidateId, hasSummary, onValidate, onViewSummary, reportUrl }) => {
+  if (isLoading) {
+    return <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary mx-auto"></div>;
+  }
+
+  if (isValidated && score != null) {
+    return (
+      <div className="relative flex items-center justify-center">
+        {/* The 3D Score Circle */}
+        <div className={`flex items-center justify-center h-10 w-10 rounded-full font-bold text-lg transition-transform hover:scale-105 ${getScoreColor(score)}`}>
+          {score}
+        </div>
+
+        {/* --- This is the Hover Box, positioned on the LEFT and with a high z-index --- */}
+        <div className="absolute right-full mr-2 z-30 flex items-center gap-1 rounded-md border bg-white p-1 shadow-md opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+          <div className="flex flex-col gap-1 items-center">
+            <p className="font-semibold text-xs whitespace-nowrap px-1">Validation Score: {score}/100</p>
+            <div className="w-full h-[1px] bg-gray-200" />
+            <div className="flex items-center">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button onClick={() => onViewSummary(candidateId)} className="p-1 rounded-md hover:bg-accent">
+                      <Eye className="h-4 w-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent><p>View Summary</p></TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              {reportUrl && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <a href={reportUrl} download target="_blank" rel="noopener noreferrer" className="p-1 rounded-md text-foreground hover:bg-accent" onClick={(e) => e.stopPropagation()}>
+                        <Download className="h-4 w-4" />
+                      </a>
+                    </TooltipTrigger>
+                    <TooltipContent><p>Download Report</p></TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Fallback for "Click to Validate" button
+ return (
+  <div className="relative flex items-center justify-center">
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="default"
+            size="icon"
+            onClick={() => onValidate(candidateId)}
+            className="h-9 w-9 bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:from-purple-700 hover:to-pink-700 shadow-md border border-purple-400 animate-bounce hover:animate-bounce transition-all rounded-lg"
+            title="Click to Validate"
+          >
+            <Sparkles className="h-5 w-5 " />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p>Click to Validate</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+    </div>
+  );
+};
   return (
     <>
-    {isEmployee && <div className="flex justify-between items-center mb-4">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-600">Filter Candidates:</span>
-          <Select
-            value={candidateFilter}
-            onValueChange={(value: "All" | "Yours") => setCandidateFilter(value)}
-          >
-            <SelectTrigger className="w-[120px]">
-              <SelectValue placeholder="All" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="All">All</SelectItem>
-              <SelectItem value="Yours">Yours</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div> }
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList1 className="grid grid-cols-7 mb-4">
-          <TabsTrigger1 value="All Candidates" className="relative">
-            All Candidates
-            <span
-              className={`absolute top-0 right-1 text-xs rounded-full h-4 w-4 flex items-center justify-center ${
-                activeTab === "All Candidates"
-                  ? "bg-white purple-text-color"
-                  : "bg-purple text-white"
+
+      <div className="w-full mb-4 flex justify-center">
+<div className="flex-shrink-0 order-1">
+  <Tabs value={activeTab} onValueChange={setActiveTab}>
+    <TabsList className="inline-flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800 p-1 shadow-inner space-x-0.5">
+      {/* Combine "All Candidates" with the dynamic statuses into one array */}
+      {[{ id: "all-candidates", name: "All Candidates" }, ...mainStatuses].map((status) => {
+        const isActive = activeTab === status.name || (status.id === 'all-candidates' && activeTab === 'All Candidates');
+
+        return (
+          <TabsTrigger
+            key={status.id}
+            value={status.name}
+            className={`relative px-4 py-1.5 rounded-full text-sm font-medium text-gray-600 dark:text-gray-300 
+              data-[state=active]:bg-violet-600 data-[state=active]:text-white data-[state=active]:shadow-md transition-all
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                isActive ? "text-primary-foreground" : "text-muted-foreground hover:text-primary"
               }`}
-            >
-              {getTabCount("All Candidates")}
+          >
+            {/* Tab Content (Text and Count) */}
+            <span className="relative flex items-center">
+              {status.name}
+              <span
+                className={`ml-2 text-xs rounded-full h-5 w-5 flex items-center justify-center ${
+                  isActive ? "bg-white/20 text-white" : "bg-primary/10 text-primary"
+                }`}
+              >
+                {getTabCount(status.name)}
+              </span>
             </span>
-          </TabsTrigger1>
-         
-           {areStatusesLoading ? (
-            Array.from({ length: 5 }).map((_, index) => (
-              <Skeleton key={index} className="h-10 w-full rounded-md" />
-            ))
-          ) : (
-            mainStatuses.map((status) => (
-              <TabsTrigger1 key={status.id} value={status.name} className="relative">
-                {status.name}
-                <span
-                  className={`absolute top-0 right-1 text-xs rounded-full h-5 w-5 flex items-center justify-center ${
-                    activeTab === status.name ? "bg-white purple-text-color" : "bg-purple text-white"
-                  }`}
-                >
-                  {getTabCount(status.name)}
-                </span>
-              </TabsTrigger1>
-            ))
-          )}
-        </TabsList1>
-      </Tabs>
+          </TabsTrigger>
+        );
+      })}
+    </TabsList>
+  </Tabs>
+</div>
+</div>
       {filteredCandidates.length === 0 ? (
         <EmptyState onAddCandidate={async () => {
           try {
@@ -1851,204 +2142,147 @@ const candidates = useMemo(() => {
           }
         }} />
       ) : (
-        <div className="rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-muted/50">
-              <TableHead className="w-[40px]">
-  <Checkbox
-    checked={paginatedCandidates.length > 0 && selectedCandidates.size === paginatedCandidates.length}
-    onCheckedChange={(checked) => handleSelectAll(Boolean(checked))}
-  />
-</TableHead>
-                <TableHead className="w-[150px] sm:w-[200px]">Candidate Name</TableHead>
-                {!isEmployee && <TableHead className="w-[100px] sm:w-[150px]">Owner</TableHead>}
-                <TableHead className="w-[50px] sm:w-[100px]">
-                  Contact Info
-                </TableHead>
-                {/* <TableHead className="w-[150px] sm:w-[200px]">Interview / Feedback</TableHead> */}
-                {ITECH_ORGANIZATION_ID.includes(organizationId) || organizationId !== ASCENDION_ORGANIZATION_ID && !isEmployee && <TableHead className="w-[80px] sm:w-[100px]">Profit</TableHead>}
-                <TableHead className="w-[120px] sm:w-[150px]">Stage Progress</TableHead>
-                <TableHead className="w-[100px] sm:w-[120px]">Status</TableHead>
-                <TableHead className="w-[80px] sm:w-[100px]">Validate</TableHead>
-                {activeTab === "Applied" && <TableHead className="w-[80px] sm:w-[100px]">Action</TableHead>}
-                <TableHead className="w-[50px] sm:w-[60px]">Action</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {paginatedCandidates.map((candidate) => (
-                <TableRow key={candidate.id}>
-                   <TableCell>
-    <Checkbox
-      checked={selectedCandidates.has(candidate.id)}
-      onCheckedChange={(checked) => handleSelectCandidate(candidate.id, Boolean(checked))}
-    />
-  </TableCell>
-                  <TableCell className="font-medium">
-  <div
-    className="flex flex-col cursor-pointer"
-    onClick={() => {
-      navigate(`/employee/${candidate.id}/${jobId}`, {
-        state: { candidate, jobId },
-      });
-    }}
-  >
-    <div className="flex items-center gap-2">
-      {candidate.owner || candidate.appliedFrom === `${user.user_metadata.first_name} ${user.user_metadata.last_name}` && (
-        <span className="h-2 w-2 rounded-full bg-green-500 inline-block" title="You added this candidate"></span>
-      )}
-      <span>{candidate.name}</span>
+       <div className="w-full overflow-x-auto rounded-md border">
+      <Table className="min-w-[800px]">
+  <TableHeader>
+    <TableRow className="bg-purple-600 hover:bg-purple-700 whitespace-nowrap border border-purple-500">
+      <TableHead className="sticky text-center left-0 z-20 w-[120px] px-2 text-white">Score</TableHead>
+      <TableHead className="sticky left-[60px] z-10 w-[200px] px-2 text-white">Candidate Name</TableHead>
+      <TableHead className="w-[60px] text-center px-2 text-white">Owner</TableHead>
+      <TableHead className="w-[120px] px-2 text-white">Current CTC</TableHead>
+      <TableHead className="w-[120px] px-2 text-white">Expected CTC</TableHead>
+      <TableHead className="w-[120px] px-2 text-white">Notice Period</TableHead>
+      <TableHead className="w-[120px] px-2 text-white">Location</TableHead>
+      <TableHead className="w-[200px] px-2 text-white">Status</TableHead>
+      <TableHead className="sticky right-0 z-20 w-[150px] px-2 text-white">Action</TableHead>
+    </TableRow>
+  </TableHeader>
+  <TableBody>
+    {paginatedCandidates.map((candidate) => (
+      <TableRow key={candidate.id} className="align-top group bg-white hover:bg-slate-50 relative">
+        {/* --- Sticky Cell 1 (BACKGROUND FIXED) --- */}
+        <TableCell className="sticky left-0 z-20 px-2 bg-purple-50 group-hover:bg-slate-50 py-1">
+          <ScoreDisplay
+            score={candidateAnalysisData[candidate.id]?.overall_score}
+            isValidated={candidate.hasValidatedResume}
+            isLoading={validatingIds.includes(candidate.id)}
+            candidateId={candidate.id}
+            hasSummary={!!candidateAnalysisData[candidate.id]}
+            onValidate={handleValidateResume}
+            onViewSummary={fetchAnalysisData}
+            reportUrl={candidateAnalysisData[candidate.id]?.report_url}
+          />
+        </TableCell>
+
+        {/* --- Sticky Cell 2 (BACKGROUND FIXED) --- */}
+<TableCell className="sticky left-[60px] z-10 px-2 font-medium bg-purple-50 group-hover:bg-slate-50 py-1">
+  <div className="flex items-start gap-2 h-full">
+    <div className="flex-1 min-w-0">
+      <div className="truncate cursor-pointer text-black" onClick={() => navigate(`/employee/${candidate.id}/${jobId}`, { state: { candidate } })} title={candidate.name}>
+        {candidate.name}
+      </div>
+      <span className="text-xs text-muted-foreground whitespace-nowrap block text-left">
+        {moment(candidate.createdAt).format("DD MMM YYYY")} ({moment(candidate.createdAt).fromNow()})
+      </span>
     </div>
-    <span className="text-xs text-muted-foreground">
-      {moment(candidate.createdAt).format("DD MMM YYYY")} (
-      {moment(candidate.createdAt).fromNow()})
-    </span>
+    <div className="flex-shrink-0 self-stretch flex items-center justify-center">
+      <div className="flex space-x-1 rounded-full bg-slate-100 p-1 shadow-md border border-slate-200">
+        {candidate.email && <ContactIcon type="email" value={candidate.email} />}
+        {candidate.phone && <ContactIcon type="phone" value={candidate.phone} />}
+      </div>
+    </div>
   </div>
 </TableCell>
 
-{!isEmployee && <TableCell>{candidate.owner || candidate.appliedFrom}</TableCell>}
-                  <HiddenContactCell
-                    email={candidate.email}
-                    phone={candidate.phone}
-                    candidateId={candidate.id}
-                  />
-                  {/* <TableCell>
-                <InterviewDetailsCell candidate={candidate} />
-              </TableCell> */}
-                {ITECH_ORGANIZATION_ID.includes(organizationId)|| organizationId !== ASCENDION_ORGANIZATION_ID && !isEmployee && (
-  <TableCell>
-    <span
-      className={
-        candidate.profit?.profit != null && candidate.profit.profit > 0
-          ? "text-green-600"
-          : "text-red-600"
-      }
-    >
-      {candidate.profit?.profit != null
-        ? `${formatCurrency(candidate.profit.profit)} `
-        : "N/A"}
-    </span>
-  </TableCell>
-)}
-                  <TableCell>
-                    <div className="truncate">
-                      <ProgressColumn
-                        progress={candidate.progress}
-                        mainStatus={candidate.main_status}
-                        subStatus={candidate.sub_status}
-                      />
-                    </div>
-                  </TableCell>
-                 <TableCell>
-                    {/* 3. ADD CONDITIONAL RENDERING LOGIC */}
-                    {ITECH_ORGANIZATION_ID.includes(organizationId) || organizationId === ASCENDION_ORGANIZATION_ID ? (
-                      <ItechStatusSelector
-                        value={candidate.sub_status_id || ""}
-                        onChange={(value) => handleStatusChange(value, candidate)}
-                        className="h-7 text-xs w-full"
-                      />
-                    ) : (
-                      <StatusSelector
-                        value={candidate.sub_status_id || ""}
-                        onChange={(value) => handleStatusChange(value, candidate)}
-                        className="h-7 text-xs w-full"
-                        disableNextStage={candidate.sub_status?.name?.includes('Reject')}
-                      />
-                    )}
-                  </TableCell>
-                  <TableCell className="px-2">
-                    <div className="flex items-center gap-2">
-                      <ValidateResumeButton
-                        isValidated={candidate.hasValidatedResume || false}
-                        candidateId={candidate.id}
-                        onValidate={handleValidateResume}
-                         isLoading={validatingIds.includes(candidate.id)}
-    overallScore={candidateAnalysisData[candidate.id]?.overall_score}
-                      />
-                      {analysisDataAvailable[candidate.id] && (
-                        <Button
-                          variant="ghost"
-                          size="xs"
-                          onClick={() => fetchAnalysisData(candidate.id)}
-                          title="View Summary Report"
-                          className="p-1"
-                        >
-                          <FileText className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
-                  </TableCell>
-                  {activeTab === "Applied" && (
-                    <TableCell>
-                      <Button size="sm" variant="outline" onClick={() => handleAddToJob(candidate.id)}>
-                        Add to Job
-                      </Button>
-                    </TableCell>
-                  )}
-                  <TableCell className="text-right">
-                    <div className="flex gap-1 justify-start">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleViewResume(candidate.id)}
-                        title="View Resume"
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          if (candidate.resume) {
-                            const link = document.createElement('a');
-                            link.href = candidate.resume;
-                            link.download = `${candidate.name}_resume.pdf`;
-                            link.click();
-                          } else {
-                            toast.error("Resume not available for download");
-                          }
-                        }}
-                        title="Download Resume"
-                      >
-                        <Download className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleEditCandidate(candidate)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                       <Button
-      variant="ghost"
-      size="sm"
-      onClick={() => handleViewTimeline(candidate)}
-      title="View Timeline & Notes"
-    >
-      <MessageSquare className="h-4 w-4" />
-    </Button>
-
-    
-      {candidate.hasValidatedResume && (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => openShareModal([candidate], scoreFilter === 'not_shortlisted' ? 'rejection' : 'shortlist')}
-          disabled={isFetchingOwner !== null}
-          title={`Share update with ${candidate.name}`}
-        >
-          <Mail className="h-4 w-4" />
-        </Button>
-      )}
-
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+        {/* --- Other Scrollable Cells --- */}
+        <TableCell className="px-2 py-1 flex items-center justify-center">
+          <OwnerAvatarCell ownerName={candidate.owner || candidate.appliedFrom} createdAt={candidate.createdAt} isEmployee={isEmployee} currentUserName={`${user.user_metadata.first_name} ${user.user_metadata.last_name}`} />
+        </TableCell>
+        <TableCell className="px-2 text-sm py-1">{candidate.currentSalary ? formatCurrency(parseFloat(String(candidate.currentSalary).replace(/[^0-9.]/g, ''))) : "N/A"}</TableCell>
+        <TableCell className="px-2 text-sm py-1">{candidate.expectedSalary ? formatCurrency(parseFloat(String(candidate.expectedSalary).replace(/[^0-9.]/g, ''))) : "N/A"}</TableCell>
+        <TableCell className="px-2 text-sm py-1">{candidate?.metadata?.noticePeriod || "N/A"}</TableCell>
+        <TableCell className="px-2 text-sm py-1">{candidate?.metadata?.currentLocation || "N/A"}</TableCell>
+        <TableCell className="px-2 py-1">
+    {organizationId === TASKUP_ORGANIZATION_ID ? (
+        <TaskupStatusSelector
+            value={candidate.sub_status_id || ""}
+            onChange={(value) => handleStatusChange(value, candidate)}
+            className="h-8 text-xs w-full"
+        />
+    ) : (
+        <StatusSelector
+            value={candidate.sub_status_id || ""}
+            onChange={(value) => handleStatusChange(value, candidate)}
+            className="h-8 text-xs w-full"
+        />
+    )}
+ </TableCell>
+        {/* --- Action Cell (Right Fixed) --- */}
+        <TableCell className="sticky right-0 z-20 px-2 bg-purple-50 group-hover:bg-slate-50 py-1">
+          <div className="flex items-center space-x-1 rounded-full bg-slate-100 p-1 shadow-md border border-slate-200 w-fit">
+            {/* ... All your action buttons (Eye, Download, Pencil, etc.) go here ... */}
+            {/* The content inside this div does not need to change. */}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 rounded-full text-slate-500 hover:bg-purple-600 hover:text-white transition-colors" onClick={() => handleViewResume(candidate.id)}>
+                    <Eye className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent><p>View Resume</p></TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 rounded-full text-slate-500 hover:bg-purple-600 hover:text-white transition-colors" onClick={() => { if (candidate.resumeUrl) { const link = document.createElement('a'); link.href = candidate.resumeUrl; link.download = `${candidate.name}_resume.pdf`; link.click(); } else { toast.error("Resume not available for download"); } }}>
+                    <Download className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent><p>Download Resume</p></TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 rounded-full text-slate-500 hover:bg-purple-600 hover:text-white transition-colors" onClick={() => handleEditCandidate(candidate)}>
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent><p>Edit Candidate</p></TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 rounded-full text-slate-500 hover:bg-purple-600 hover:text-white transition-colors" onClick={() => handleViewTimeline(candidate)}>
+                    <MessageSquare className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent><p>View Timeline & Notes</p></TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            {candidate.hasValidatedResume && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 rounded-full text-slate-500 hover:bg-purple-600 hover:text-white transition-colors" onClick={() => openShareModal(candidate)}>
+                      <Mail className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent><p>Share update with {candidate.name}</p></TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+          </div>
+        </TableCell>
+      </TableRow>
+    ))}
+  </TableBody>
+</Table>
+      </div>
+      
+    )}
       {filteredCandidates.length > 0 && renderPagination()}
 
       {selectedCandidate && (
@@ -2062,6 +2296,16 @@ const candidates = useMemo(() => {
           candidate={selectedCandidate}
           open={isEditDrawerOpen}
           onOpenChange={setIsEditDrawerOpen}
+        />
+      )}
+
+      {isTaskupActionModalOpen && (
+        <TaskupActionModal
+          isOpen={isTaskupActionModalOpen}
+          onClose={() => setIsTaskupActionModalOpen(false)}
+          onSubmit={handleTaskupActionSubmit}
+          config={taskupModalConfig}
+          candidateName={candidates.find(c => c.id === currentCandidateId)?.name || ''}
         />
       )}
 

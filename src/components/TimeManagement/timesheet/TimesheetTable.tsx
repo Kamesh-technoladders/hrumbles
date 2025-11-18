@@ -171,7 +171,15 @@ export const TimesheetTable: React.FC<TimesheetTableProps> = ({
                         variant="outline"
                         size="sm"
                         className="h-8 px-2"
-                        onClick={() => onViewTimesheet(timesheet)}
+                                    onClick={(e) => {
+              // Add these detailed logs
+              console.log('[EVENT] Submit Button was clicked!');
+              e.stopPropagation();
+              console.log('[EVENT] Event propagation was stopped.');
+              onViewTimesheet(timesheet);
+            }}
+
+                        disabled={!timesheet.clock_out_time}
                       >
                         <FileText className="h-4 w-4 mr-1" />
                         Submit
@@ -181,7 +189,10 @@ export const TimesheetTable: React.FC<TimesheetTableProps> = ({
                         variant="outline"
                         size="sm"
                         className="h-8 px-2"
-                        onClick={() => onViewTimesheet(timesheet)}
+                       onClick={(e) => {
+                e.stopPropagation();
+                onViewTimesheet(timesheet)
+            }}
                       >
                         <FileText className="h-4 w-4 mr-1" />
                         View

@@ -19,10 +19,10 @@ const SetPasswordPage: FC = () => {
     useEffect(() => {
         const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
             // This event fires when the Supabase client detects the password recovery token in the URL
-            if (event === 'PASSWORD_RECOVERY' && session) {
-                setAuthStatus('authenticated');
-            }
-        });
+           if ((event === 'SIGNED_IN' || event === 'PASSWORD_RECOVERY') && session) {
+            setAuthStatus('authenticated');
+        }
+    });
 
         // If the event doesn't fire after a short delay, the link is likely invalid or expired.
         const timer = setTimeout(() => {
@@ -30,7 +30,7 @@ const SetPasswordPage: FC = () => {
                 setAuthStatus('error');
                 setError("Invalid or expired link. Please request a new one.");
             }
-        }, 3000); // 3-second timeout
+        }, 5000); // 3-second timeout
 
         // Cleanup subscription on component unmount
         return () => {

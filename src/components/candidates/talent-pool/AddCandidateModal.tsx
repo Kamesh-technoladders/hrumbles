@@ -1,7 +1,7 @@
 import React, { useState, FC } from 'react';
 import Modal from 'react-modal';
 import { toast } from 'sonner';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import OpenAI from 'openai'; // Changed from GoogleGenerativeAI
 import { v4 as uuidv4 } from 'uuid';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -59,107 +59,18 @@ const AddCandidateModal: FC<AddCandidateModalProps> = ({ isOpen, onClose, onCand
     throw new Error('Unsupported file type. Please use PDF or DOCX.');
   };
 
-  const cleanResponse = (text: string): string => {
-    const match = text.match(/{[\s\S]*}/);
-    if (!match) throw new Error('AI response is not valid JSON.');
-    return match[0];
-  };
-
   const analyseAndSaveProfile = async (text: string, resumeFile?: File): Promise<{status: string; profile: any}> => {
-    const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY_TALENT;
-    const genAI = new GoogleGenerativeAI(geminiApiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
-    
-    const prompt = `
-     Based on the following resume text, perform a detailed extraction to create a professional profile. Return ONLY a single, valid JSON object with the exact keys specified below.
- 
-JSON Schema and Strict Instructions:
-       
-"suggested_title": string.
-Rule 1: Use the most recent or prominent job title from work experience (e.g., "Technical Lead", "Full Stack Developer").
-Rule 2: If no work experience, infer a suitable title from the professional summary and skills (e.g., "Frontend Developer").
- 
-"candidate_name": string (Full Name).
-                                                 
-"email": string (Email address).
- 
-"phone": string (Phone number, exactly as found).
- 
-"linkedin_url": string.
-Rule: Must be a valid URL (starts with http, https, or www). If the text is just a phrase like "LinkedIn Profile", return null.
- 
-"github_url": string.
-Rule: Must be a valid URL. If not a URL, return null.
- 
-"current_location": string.  
-- Rule: Extract the full address if available (e.g., under "Address", "Location", or at the top of the resume).  
-- If no address is found, return null.  
-- Do not merge email or phone into address.  
-                                                   
-"professional_summary": array of strings  
-Rules:  
-1. Always return as an array of separate bullet points (strings).  
-2. Each bullet point must be a single complete sentence or phrase from the resume.  
-3. Do not merge multiple points into one string.  
-4. If no professional summary is present, omit this field entirely.  
- 
-"top_skills": array of strings (List of key technical and soft skills).  
- 
-"work_experience": array of objects, each with "company", "designation", "duration", and "responsibilities" (array of strings).  
-Rule: If a company and a client are mentioned (e.g., "Company X | Client: Client Y"), extract only the primary company name ("Company X") into the "company" field.  
- 
-"education": array of objects, each with "institution", "degree", and "year".  
-Rule: If an institution name is not explicitly stated, return null for "institution".  
- 
-"projects": array of strings  
-Rules:  
-- Always extract the **entire Project Summary section exactly as written**, including titles, clients, environments, roles, descriptions, and bullet-point responsibilities.  
-- Each project (PROJECT #1, PROJECT #2, etc.) must be preserved as one full string inside the array.  
-- Do not replace with placeholders like "View Project". If a project block exists in the text, copy it fully.  
-- Do not summarize or shorten. Preserve all formatting and wording.  
-- If no projects exist in the resume, return an empty array.  
- 
-"certifications": array of strings.  
- 
-"other_details": object  
-Rules:  
-- Include only additional resume information that does not belong to the above categories.  
-- Use exact heading names as keys (e.g., "Hackathons", "AI & Tech Online Courses", "Languages", "Achievements").  
-- Do NOT include project-related information here.  
-- If no such sections exist, return null.  
- 
-Important:  
-- If a field cannot be found, use null or an empty array/string as appropriate.  
-- Return only the JSON object, no explanations.  
-- Give as a points.
- 
- 
-  Resume Text:
- 
-  ---
-   ${text} 
-  ---
-`;
-
-    const result = await model.generateContent(prompt);
-    
-    // Extract token usage from the response
-    const usageMetadata = result.response.usageMetadata;
-    const inputTokens = usageMetadata?.promptTokenCount || 0;
-    const outputTokens = usageMetadata?.candidatesTokenCount || 0;
-    
-    const cleanedJson = cleanResponse(result.response.text());
-    // --- END: MODIFICATION ---
-    const profileData = JSON.parse(cleanedJson);
     let resumePath: string | null = null;
     if (resumeFile) {
-        // --- FIX: Sanitize the filename before uploading ---
         const sanitizedName = sanitizeFileName(resumeFile.name);
         const fileName = `${uuidv4()}-${sanitizedName}`;
         
         const { data: uploadData, error: uploadError } = await supabase.storage
             .from(BUCKET_NAME)
-            .upload(fileName, resumeFile);
+            .upload(fileName, resumeFile, {
+                cacheControl: '3600',
+                upsert: false,
+            });
         
         if (uploadError) throw new Error(`File Upload Error: ${uploadError.message}`);
 
@@ -167,28 +78,39 @@ Important:
         resumePath = urlData.publicUrl;
     }
 
-    const { data: status, error: rpcError } = await supabase.rpc('upsert_candidate_with_timeframe', {
-      profile_data: profileData,
-      resume_text: text,
-      organization_id_input: organizationId,
-      user_id_input: user.id,
-      resume_path_input: resumePath,
-       input_tokens_used: inputTokens,
-      output_tokens_used: outputTokens,
-      usage_type_input: 'talent_pool_ingestion'
+    // --- CALL THE NEW SUPABASE EDGE FUNCTION ---
+    const { data, error: edgeFunctionError } = await supabase.functions.invoke('talent-analyse-resume', {
+        body: {
+            resumeText: text,
+            organizationId: organizationId, // Pass these to the Edge Function
+            userId: user.id,             // Pass these to the Edge Function
+            resumePath: resumePath,      // Pass the uploaded path
+        },
+        // headers: { 'Content-Type': 'application/json' } // invoke handles this for JSON body
     });
 
-    if (rpcError) throw new Error(`Database Error: ${rpcError.message}`);
+    if (edgeFunctionError) {
+        console.error('Edge Function invocation error:', edgeFunctionError);
+        // The Edge Function returns structured error, try to parse it
+        try {
+            const errorBody = JSON.parse(edgeFunctionError.message);
+            throw new Error(errorBody.error || edgeFunctionError.message);
+        } catch {
+            throw new Error(`Failed to process resume: ${edgeFunctionError.message}`);
+        }
+    }
     
-    // The RPC function now returns 'SKIPPED_NO_EMAIL' for bad parses
+    // The Edge Function now returns the status and profile directly
+    const { status, profile } = data;
+
     if (status === 'SKIPPED_NO_EMAIL') {
         throw new Error('Could not extract a valid email from the resume.');
     }
     
-    return { status, profile: profileData };
+    return { status, profile };
   };
 
-  // --- HANDLERS ---
+  // --- HANDLERS (No changes needed below this line) ---
   const handleSingleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -243,7 +165,7 @@ Important:
     if (!files || files.length === 0) return;
 
     setIsLoading(true);
-    setIsBulkProcessing(true); // --- FIX: Use a separate state for bulk processing
+    setIsBulkProcessing(true);
     setBulkResults([]);
     setBulkProgress(0);
     const results: BulkUploadResult[] = [];
@@ -267,17 +189,14 @@ Important:
     
     toast.success("Bulk processing complete. Check results below.");
     setIsLoading(false);
-    // onCandidateAdded(); 
   };
   
   const handleClose = () => {
-    // If a bulk process has run, we should refetch the list.
     if (isBulkProcessing) {
         onCandidateAdded();
     } else {
         onClose();
     }
-    // Reset all state when closing
     setResumeText('');
     setBulkResults([]);
     setBulkProgress(0);
@@ -290,7 +209,6 @@ Important:
     <Modal 
       isOpen={isOpen} 
       onRequestClose={handleClose} 
-      // --- FIX: Responsive and Overflow Styling ---
       style={{
         content: {
           top: '50%',
@@ -299,12 +217,12 @@ Important:
           bottom: 'auto',
           marginRight: '-50%',
           transform: 'translate(-50%, -50%)',
-          width: '90%', // Responsive width
-          maxWidth: '800px', // Max width for larger screens
-          maxHeight: '90vh', // Max height to prevent overflow
+          width: '90%',
+          maxWidth: '800px',
+          maxHeight: '90vh',
           display: 'flex',
           flexDirection: 'column',
-          padding: '0' // Remove default padding
+          padding: '0'
         },
         overlay: {
           backgroundColor: 'rgba(0, 0, 0, 0.75)'
@@ -312,7 +230,6 @@ Important:
       }}
       contentLabel="Add Candidate Modal"
     >
-      {/* --- FIX: Modal Layout for Scrolling --- */}
       <div className="flex justify-between items-center p-4 border-b">
         <h2 className="text-xl font-semibold">Add Candidate to Talent Pool</h2>
         <Button variant="ghost" size="icon" onClick={handleClose}>

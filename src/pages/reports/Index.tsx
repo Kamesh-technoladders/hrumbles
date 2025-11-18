@@ -20,6 +20,8 @@ import CompaniesTrendsReport from '@/components/reports/CompaniesTrendsReport';
 import AttendanceReportsPage from '@/components/reports/attendance/AttendanceReportsPage';
 import ContactStatusReport from '@/components/reports/ContactsStatusReport';
 import CompaniesStatusReport from '@/components/reports/CompaniesStatusReport';
+import UserActivityReportPage from '@/components/reports/UserActivityReportPage';
+import DynamicRecruiterReportPage from '@/components/reports/DynamicRecruiterReportPage';
 import { LoadingSpinner } from '@/components/ui/loading-spinner'; // NEW: Import a loading spinner
 
 const ITECH_ORGANIZATION_ID = [
@@ -58,6 +60,8 @@ const ReportIndex: React.FC = () => {
   // MODIFIED: Get full auth state
   const { organization_id: organizationId, user, role } = useSelector((state: any) => state.auth);
     const { details: organizationDetails, status: firmOrgStatus } = useSelector((state: any) => state.firmOrganization);
+
+     const DYNAMIC_REPORT_ORG_ID = '0e4318d8-b1a5-4606-b311-c56d7eec47ce';
     
 
   // NEW: State for department fetching
@@ -117,11 +121,15 @@ const ReportIndex: React.FC = () => {
     switch (selectedReportType) {
       case 'client': return <ClientWiseReport />;
       case 'individual': return <IndividualReport />;
-      case 'recruiter': return <RecruiterReportPage />;
+      case 'recruiter':  if (organizationId === DYNAMIC_REPORT_ORG_ID) {
+          return <DynamicRecruiterReportPage />;
+        }
+        return <RecruiterReportPage />;;
       case 'talent': return <TalentProfileReport />;
       case 'talent_trends': return <TalentTrendsReport />;
       case 'verification': return <VerificationReportPage />;
       case 'consolidated_status': return <ConsolidatedStatusReport />;
+      case 'user_activity': return <UserActivityReportPage />;
       case 'contacts': return <ContactsReport />;
       case 'companies': return <CompaniesReport />;
       case 'contacts_trends': return <ContactsTrendsReport />;
@@ -156,35 +164,47 @@ const ReportIndex: React.FC = () => {
           ) : showRecruitmentFirmReports ? (
             <>
               {/* --- Reports for Recruitment Firms --- */}
-              <Card onClick={() => handleSelectReport('client')} className="cursor-pointer ...">
+             
+              
+             
+            
+              <Card onClick={() => handleSelectReport('client')} className="cursor-pointer hover:shadow-xl transition-all duration-300 transform hover:-translate-y-2 animate-scale-up">
                  <CardHeader className="bg-indigo-50"><CardTitle className="flex items-center text-indigo-700"><Building2 className="mr-2 h-6 w-6" /> Client Performance</CardTitle></CardHeader>
-                 <CardContent className="p-4 text-gray-600">View candidate status counts and distributions for each client.</CardContent>
+                 <CardContent className="p-4 text-gray-600">View candidate status counts for each client.</CardContent>
               </Card>
               <Card onClick={() => handleSelectReport('individual')} className="cursor-pointer ...">
                 <CardHeader className="bg-blue-50"><CardTitle className="flex items-center text-blue-700"><Users className="mr-2 h-6 w-6" /> Individual Report</CardTitle></CardHeader>
                 <CardContent className="p-4 text-gray-600">View candidate status counts by individual employees.</CardContent>
-              </Card>
-              <Card onClick={() => handleSelectReport('recruiter')} className="cursor-pointer ...">
-                <CardHeader className="bg-green-50"><CardTitle className="flex items-center text-green-700"><UserCheck className="mr-2 h-6 w-6" /> Recruiter Performance</CardTitle></CardHeader>
-                <CardContent className="p-4 text-gray-600">Track recruiter performance with detailed metrics.</CardContent>
-              </Card>
-              <Card onClick={() => handleSelectReport('recruitment_firm_submission')} className="cursor-pointer hover:shadow-xl transition-all duration-300 transform hover:-translate-y-2 animate-scale-up">
-                <CardHeader className="bg-cyan-50"><CardTitle className="flex items-center text-cyan-700"><FileUp className="mr-2 h-6 w-6" /> Submission Report</CardTitle></CardHeader>
-                <CardContent className="p-4 text-gray-600">Track and analyze all candidate submissions.</CardContent>
-              </Card>
-              <Card onClick={() => handleSelectReport('client')} className="cursor-pointer hover:shadow-xl transition-all duration-300 transform hover:-translate-y-2 animate-scale-up">
-                 <CardHeader className="bg-indigo-50"><CardTitle className="flex items-center text-indigo-700"><Building2 className="mr-2 h-6 w-6" /> Client Performance</CardTitle></CardHeader>
-                 <CardContent className="p-4 text-gray-600">View candidate status counts for each client.</CardContent>
               </Card>
               <Card onClick={() => handleSelectReport('recruiter')} className="cursor-pointer hover:shadow-xl transition-all duration-300 transform hover:-translate-y-2 animate-scale-up">
                 <CardHeader className="bg-green-50"><CardTitle className="flex items-center text-green-700"><UserCheck className="mr-2 h-6 w-6" /> Recruiter Performance</CardTitle></CardHeader>
                 <CardContent className="p-4 text-gray-600">Track recruiter performance with detailed metrics.</CardContent>
               </Card>
               <ConsolidatedReportCard onSelect={() => handleSelectReport('consolidated_status')} />
+                 <Card onClick={() => handleSelectReport('talent')} className="cursor-pointer ...">
+                <CardHeader className="bg-purple-50"><CardTitle className="flex items-center text-purple-700"><UserCheck className="mr-2 h-6 w-6" /> Talent Profile Report</CardTitle></CardHeader>
+                <CardContent className="p-4 text-gray-600">View talent profile status distributions.</CardContent>
+              </Card>
+              <Card onClick={() => handleSelectReport('talent_trends')} className="cursor-pointer ...">
+                <CardHeader className="bg-teal-50"><CardTitle className="flex items-center text-teal-700"><BarChart2 className="mr-2 h-6 w-6" /> Talent Trends Report</CardTitle></CardHeader>
+                <CardContent className="p-4 text-gray-600">Analyze trends in talent data.</CardContent>
+              </Card>
                 <Card onClick={() => handleSelectReport('attendance')} className="cursor-pointer ...">
                 <CardHeader className="bg-green-50"><CardTitle className="flex items-center text-green-700"><Clock className="mr-2 h-6 w-6" /> Attendance Report</CardTitle></CardHeader>
                 <CardContent className="p-4 text-gray-600">View attendance records and details.</CardContent>
               </Card>
+
+                <Card onClick={() => handleSelectReport('user_activity')} className="cursor-pointer hover:shadow-xl transition-all duration-300 transform hover:-translate-y-2 animate-scale-up">
+    <CardHeader className="bg-blue-50">
+        <CardTitle className="flex items-center text-blue-700">
+            <UserCheck className="mr-2 h-6 w-6" /> User Activity Report
+        </CardTitle>
+    </CardHeader>
+    <CardContent className="p-4 text-gray-600">
+        Analyze user active, inactive, and away time.
+    </CardContent>
+  </Card>
+
             </>
           ) : (
             // MODIFIED: View for all other users
@@ -243,6 +263,17 @@ const ReportIndex: React.FC = () => {
                  <CardHeader className="bg-red-50"><CardTitle className="flex items-center text-red-700"><Building className="mr-2 h-6 w-6" /> Companies Status Report</CardTitle></CardHeader>
                  <CardContent className="p-4 text-gray-600">View current status of companies.</CardContent>
               </Card>
+
+              <Card onClick={() => handleSelectReport('user_activity')} className="cursor-pointer hover:shadow-xl transition-all duration-300 transform hover:-translate-y-2 animate-scale-up">
+    <CardHeader className="bg-blue-50">
+        <CardTitle className="flex items-center text-blue-700">
+            <UserCheck className="mr-2 h-6 w-6" /> User Activity Report
+        </CardTitle>
+    </CardHeader>
+    <CardContent className="p-4 text-gray-600">
+        Analyze user active, inactive, and away time.
+    </CardContent>
+  </Card>
             </>
           )}
         </div>

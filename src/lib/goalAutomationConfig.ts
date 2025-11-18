@@ -1,70 +1,60 @@
 // src/lib/goalAutomationConfig.ts
 
 export interface AutomationSource {
-  label: string; // User-friendly name, e.g., "Contacts"
-  value: string; // Unique key, e.g., "contacts"
-  sourceTable: string; // The actual database table
-  valueColumn: string; // The column to COUNT()
-  employeeColumn: string; // The column linking to the employee
-  dateColumn: string; // The date column for filtering
-  filterColumn: string; // The column that contains the status/stage
-  statuses: { label: string; value: string }[]; // The list of statuses for the dropdown
+  label: string;
+  value: string;
+  sourceTable: string;
+  valueColumn: string;
+  employeeColumn: string;
+  dateColumn: string;
+  filterColumn: string;
+  isDynamic: boolean;
+  statuses: { label: string; value: string }[];
 }
 
+// NOTE: Hiring goals are now handled dynamically in CreateGoalForm.tsx
 export const AUTOMATION_SOURCES: AutomationSource[] = [
-  {
-    label: "Hiring (Submissions)",
-    value: "hiring_submissions",
-    sourceTable: "hr_status_change_counts",
-    valueColumn: "count",
-    employeeColumn: "candidate_owner",
-    dateColumn: "created_at",
-    filterColumn: "sub_status_id",
-    statuses: [
-      { label: "Submission", value: "71706ff4-1bab-4065-9692-2a1237629dda" },
-    ],
-  },
-  {
-    label: "Hiring (Onboarding)",
-    value: "hiring_onboarding",
-    sourceTable: "hr_status_change_counts",
-    valueColumn: "count",
-    employeeColumn: "candidate_owner",
-    dateColumn: "created_at",
-    filterColumn: "sub_status_id",
-    statuses: [
-      { label: "Onboarding", value: "c9716374-3477-4606-877a-dfa5704e7680" },
-    ],
-  },
   {
     label: "Contacts",
     value: "contacts",
     sourceTable: "contact_stage_history",
-    valueColumn: "id",
+    valueColumn: "id", // Assuming we count distinct records
     employeeColumn: "employee_id",
     dateColumn: "changed_at",
     filterColumn: "stage_name",
+    isDynamic: false,
     statuses: [
       { label: "Identified", value: "Identified" },
       { label: "Contacted", value: "Contacted" },
       { label: "Engaged", value: "Engaged" },
+      { label: "Qualified", value: "Qualified" },
+    { label: "In Discussion", value: "In Discussion" },
+    { label: "Referred to Company", value: "Referred to Company" },
+    { label: "Follow-up Scheduled", value: "Follow-up Scheduled" },
+    { label: "Dropped / Not a Fit", value: "Dropped / Not a Fit" },
       { label: "Converted", value: "Converted" },
-      // Add other contact stages here
     ],
   },
   {
     label: "Companies",
     value: "companies",
     sourceTable: "company_status_history",
-    valueColumn: "id",
+    valueColumn: "id", // Assuming we count distinct records
     employeeColumn: "employee_id",
     dateColumn: "changed_at",
     filterColumn: "status_name",
+    isDynamic: false,
     statuses: [
       { label: "Identified", value: "Identified" },
+      { label: "Targeting", value: "Targeting" },
+      { label: "In Outreach", value: "In Outreach" },
+      { label: "Warm", value: "Warm" },
+      { label: "Qualified Company", value: "Qualified Company" },
       { label: "Proposal Sent", value: "Proposal Sent / In Discussion" },
+      { label: "Negotiation", value: "Negotiation" },
       { label: "Won", value: "Closed - Won" },
-      // Add other company statuses here
+      { label: "Closed - Lost", value: "Closed - Lost" },
+      { label: "Re-engage Later", value: "Re-engage Later" },
     ],
   },
 ];

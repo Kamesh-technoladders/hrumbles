@@ -80,15 +80,20 @@ const basicInfoSchema = z.object({
     .min(1, "Phone number is required"),
   currentLocation: z.string().min(1, "Current location is required"),
   preferredLocations: z.array(z.string()).min(1, "At least one preferred location is required"),
-  totalExperience: z
-    .number()
-    .min(0, "Cannot be negative")
-    .optional(),
-  totalExperienceMonths: z
-    .number()
-    .min(0)
-    .max(11, "Max 11 months")
-    .optional(),
+totalExperience: z
+  .number({
+    required_error: "Total experience (years) is required",
+    invalid_type_error: "Enter a valid number",
+  })
+  .min(0, "Cannot be negative"),
+
+totalExperienceMonths: z
+  .number({
+    required_error: "Total experience (months) is required",
+    invalid_type_error: "Enter a valid number",
+  })
+  .min(0)
+  .max(11, "Max 11 months"),
   relevantExperience: z
     .number()
     .min(0, "Cannot be negative")
@@ -98,14 +103,19 @@ const basicInfoSchema = z.object({
     .min(0)
     .max(11, "Max 11 months")
     .optional(),
-  currentSalary: z
-    .number()
-    .min(0, "Cannot be negative")
-    .optional(),
-  expectedSalary: z
-    .number()
-    .min(0, "Cannot be negative")
-    .optional(),
+currentSalary: z
+  .number({
+    required_error: "Current salary is required",
+    invalid_type_error: "Enter a valid number",
+  })
+  .min(0, "Cannot be negative"),
+
+expectedSalary: z
+  .number({
+    required_error: "Expected salary is required",
+    invalid_type_error: "Enter a valid number",
+  })
+  .min(0, "Cannot be negative"),
   resume: z.string().url("Resume URL is required"),
   noticePeriod: z
     .enum(["Immediate", "15 days", "30 days", "45 days", "60 days", "90 days"])
@@ -159,12 +169,16 @@ const skillsSchema = z.object({
 });
 
 const AddCandidateDrawer = ({ job, onCandidateAdded, candidate, open, onOpenChange }: AddCandidateDrawerProps) => {
+    const organizationId = useSelector((state: any) => state.auth.organization_id);
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("basic-info");
   const [candidateId, setCandidateId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const user = useSelector((state: any) => state.auth.user);
   const isEditMode = !!candidate;
+
+    const [fullParsedProfile, setFullParsedProfile] = useState<any | null>(null);
+  const [extractedResumeText, setExtractedResumeText] = useState<string | null>(null);
 
     const [parsedResumeData, setParsedResumeData] = useState<any | null>(null);
 
@@ -223,6 +237,8 @@ const AddCandidateDrawer = ({ job, onCandidateAdded, candidate, open, onOpenChan
     proofIdForm.reset();
     setCandidateId(isEditMode ? candidate?.id.toString() : null);
     setParsedResumeData(null); 
+     setFullParsedProfile(null); // Reset the profile data
+    setExtractedResumeText(null);
     setActiveTab("basic-info");
     controlledOnOpenChange(false);
   };
@@ -300,7 +316,7 @@ const AddCandidateDrawer = ({ job, onCandidateAdded, candidate, open, onOpenChan
         experience: formatExperience(data.totalExperience, data.totalExperienceMonths),
         matchScore: 0,
         appliedDate: new Date().toISOString().split('T')[0],
-        skills: parsedSkills,
+        skills: fullParsedProfile?.top_skills || [],
         email: data.email,
         phone: data.phone,
         currentSalary: data.currentSalary,
@@ -309,8 +325,8 @@ const AddCandidateDrawer = ({ job, onCandidateAdded, candidate, open, onOpenChan
         appliedFrom,
         resumeUrl: data.resume,
         createdBy: createdby,
-         career_experience: parsedResumeData?.work_experience || null,
-        projects: parsedResumeData?.projects || null,
+        career_experience: fullParsedProfile?.work_experience || null,
+        projects: fullParsedProfile?.projects || null,
         metadata: {
           currentLocation: data.currentLocation,
           preferredLocations: data.preferredLocations,
@@ -333,7 +349,9 @@ const AddCandidateDrawer = ({ job, onCandidateAdded, candidate, open, onOpenChan
         }
       };
 
-      if (!candidateId) {
+      let currentCandidateId = candidateId;
+
+      if (!currentCandidateId) {
         const isDuplicate = await checkDuplicateCandidate(job.id, data.email, data.phone);
         if (isDuplicate) {
           toast.error("Candidate with same email or phone already exists for this job.");
@@ -342,9 +360,10 @@ const AddCandidateDrawer = ({ job, onCandidateAdded, candidate, open, onOpenChan
 
         const newCandidate = await createCandidate(job.id, candidateData);
         setCandidateId(newCandidate.id);
+         currentCandidateId = newCandidate.id;
         toast.success("Basic information saved successfully");
       } else {
-        await updateCandidate(candidateId, candidateData);
+        await updateCandidate(currentCandidateId, candidateData);
         toast.success("Basic information updated successfully");
       }
 
@@ -352,6 +371,28 @@ const AddCandidateDrawer = ({ job, onCandidateAdded, candidate, open, onOpenChan
       // if (parsedResumeData?.skills && parsedResumeData.skills.length > 0) {
       //   skillsForm.setValue("skills", parsedResumeData.skills);
       // }
+
+       if (currentCandidateId && fullParsedProfile && extractedResumeText) {
+        toast.info("Adding candidate to talent pool...");
+        const { error: talentPoolError } = await supabase.functions.invoke('add-to-talent-pool', {
+          body: {
+            profileData: fullParsedProfile, // Pass the entire rich profile object
+            resumeText: extractedResumeText,
+            organizationId: organizationId,
+            userId: user.id,
+            resumeUrl: data.resume,
+          }
+        });
+
+        if (talentPoolError) {
+          toast.warning("Candidate saved, but failed to sync with Talent Pool.");
+          console.error("Talent Pool Sync Error:", talentPoolError.message);
+        } else {
+          toast.success("Candidate successfully added to Talent Pool.");
+        }
+      }
+      
+    
 
       setActiveTab("skills-info");
 
@@ -443,15 +484,8 @@ const AddCandidateDrawer = ({ job, onCandidateAdded, candidate, open, onOpenChan
   return (
     <Sheet open={controlledOpen} 
     onOpenChange={controlledOnOpenChange} >
-      <SheetTrigger asChild>
-        <Button 
-          id={isEditMode ? "edit-candidate-btn" : "add-candidate-btn"} 
-          onClick={() => controlledOnOpenChange(true)}
-        >
-          {isEditMode ? "Edit Candidate" : "Add Candidate"}
-        </Button>
-      </SheetTrigger>
-      <SheetContent className="w-full sm:max-w-lg md:max-w-xl  overflow-y-auto">
+      
+      <SheetContent className="w-full sm:max-w-4xl lg:max-w-6xl xl:max-w-4xl 2xl:max-w-8xl overflow-y-auto">
         <SheetHeader className="mb-6">
           <SheetTitle>Add New Candidate</SheetTitle>
         </SheetHeader>
@@ -475,7 +509,10 @@ const AddCandidateDrawer = ({ job, onCandidateAdded, candidate, open, onOpenChan
               form={basicInfoForm} 
               onSaveAndNext={(data) => handleSaveBasicInfo(data)}
               onCancel={handleClose}
-              onParseComplete={setParsedResumeData}
+              onParseComplete={(data, text) => {
+                setFullParsedProfile(data);
+                setExtractedResumeText(text);
+              }}
             />
           </TabsContent>
           

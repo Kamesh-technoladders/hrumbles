@@ -1,10 +1,14 @@
-// components/EmployeeInfoCard.tsx
 import React from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import {
   Calendar,
   Briefcase,
@@ -18,17 +22,25 @@ import {
   Mail,
   Phone,
   Award,
-  MapPinPlus,
   Share2,
   Loader2,
   CheckCircle2,
   XCircle,
+  Building,
+  Star,
+  UserCheck,
+  ArrowLeft,
+  Link as LinkIcon,
+  Fingerprint,
 } from "lucide-react";
 import { FaLinkedin } from "react-icons/fa";
 import { useToast } from "@/components/ui/use-toast";
 import { DataSharingOptions } from "@/components/MagicLinkView/types";
-
-// Updated Interface for Employee Info
+import { VerificationProcessDialog } from "./VerificationProcessSection";
+import { BgvVerificationSection } from "@/pages/bg-verification/BgvVerificationSection";
+import { DocumentState, Candidate } from "@/components/MagicLinkView/types";
+ 
+// Interface for Employee Info
 interface EmployeeInfo {
   id: string;
   name: string;
@@ -59,10 +71,10 @@ interface EmployeeInfo {
   noticePeriod: string;
   hasOffers: string;
   offerDetails: string;
-  consentStatus: string; // New property
+  consentStatus: string;
 }
-
-// Updated Interface for Component Props
+ 
+// Interface for Component Props
 interface EmployeeInfoCardProps {
   employee: EmployeeInfo;
   shareMode: boolean;
@@ -73,7 +85,6 @@ interface EmployeeInfoCardProps {
   isCopied: boolean;
   onCopyMagicLink: () => void;
   navigateBack: () => void;
-  // Props for UAN Lookup are kept for completeness, though the UI is commented out
   isUanLoading: boolean;
   uanError: string | null;
   uanData: any | null;
@@ -82,14 +93,28 @@ interface EmployeeInfoCardProps {
   lookupValue: string;
   setLookupValue: (value: string) => void;
   onUanLookup: () => void;
-  // New props for Consent Link functionality
   isRequestingConsent: boolean;
   consentLink: string | null;
   isConsentLinkCopied: boolean;
   onGenerateConsentLink: () => void;
   onCopyConsentLink: () => void;
+  organizationId: string | null;
+  userId: string | null;
+  documents: {
+    uan: DocumentState;
+    pan: DocumentState;
+    pf: DocumentState;
+    esic: DocumentState;
+  };
+  onDocumentChange: (type: string, value: string) => void;
+  onToggleEditing: (type: string) => void;
+  onVerifyDocument: (type: string, candidateId: string, workHistory: any, candidate: any, organizationId: string) => Promise<void>;
+  onSaveDocuments: () => Promise<void>;
+  isSavingDocuments: boolean;
+  isUanQueued: boolean;
 }
-
+ 
+// Helper to format currency
 const formatINR = (amount: number | string) => {
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
   return isNaN(num)
@@ -100,7 +125,7 @@ const formatINR = (amount: number | string) => {
         maximumFractionDigits: 0,
       }).format(num);
 };
-
+ 
 export const EmployeeInfoCard: React.FC<EmployeeInfoCardProps> = ({
   employee,
   shareMode,
@@ -111,7 +136,6 @@ export const EmployeeInfoCard: React.FC<EmployeeInfoCardProps> = ({
   isCopied,
   onCopyMagicLink,
   navigateBack,
-  // UAN props (unused in this component's UI but kept for prop integrity)
   isUanLoading,
   uanError,
   uanData,
@@ -120,36 +144,99 @@ export const EmployeeInfoCard: React.FC<EmployeeInfoCardProps> = ({
   lookupValue,
   setLookupValue,
   onUanLookup,
-  // Destructure new consent link props
   isRequestingConsent,
   consentLink,
   isConsentLinkCopied,
   onGenerateConsentLink,
   onCopyConsentLink,
+  organizationId,
+  userId,
+  documents,
+  onDocumentChange,
+  onToggleEditing,
+  onVerifyDocument,
+  onSaveDocuments,
+  isSavingDocuments,
+  isUanQueued,
 }) => {
   const { toast } = useToast();
-
+ 
+  // Construct a candidate object required by the verification components
+  const candidateForVerification: Candidate = {
+      id: employee.id,
+      name: employee.name,
+      email: employee.email,
+      phone: employee.phone,
+      metadata: { uan: documents?.uan?.value || null },
+  } as any;
+ 
+  // Helper to get experience text
+  const getExperienceText = (skill: typeof employee.skillRatings[0]) => {
+    const years = skill.experienceYears || 0;
+    const months = skill.experienceMonths || 0;
+         
+    if (years > 0 && months > 0) {
+      return `${years}.${months} years`;
+    } else if (years > 0) {
+      return `${years} year${years > 1 ? 's' : ''}`;
+    } else if (months > 0) {
+      return `${months} month${months > 1 ? 's' : ''}`;
+    }
+    return '0 years';
+  };
+ 
+  // Helper to render stars
+  const renderStars = (rating: number) => {
+    return (
+      <div className="flex items-center gap-0.5">
+        {[1, 2, 3, 4, 5].map((star) => (
+          <Star
+            key={star}
+            className={`w-3 h-3 ${
+              star <= rating
+                ? "fill-yellow-400 text-yellow-400"
+                : "fill-gray-300 text-gray-300"
+            }`}
+          />
+        ))}
+        <span className="text-xs font-bold text-white ml-1">
+          {rating}/5
+        </span>
+      </div>
+    );
+  };
+ 
+  // Renders the skills section
   const renderSkills = () => {
     if (shareMode && !sharedDataOptions?.personalInfo) return null;
     return (
-      <div className="mt-4">
-        <h3 className="text-sm font-medium mb-2">Skills & Expertise</h3>
+      <div className="mt-6">
+        <h3 className="text-lg font-bold text-gray-800 mb-3">Skills & Expertise</h3>
         <div className="flex flex-wrap gap-2">
           {employee.skillRatings.map((skill, index) => (
-            <Badge
-              key={index}
-              variant="outline"
-              className="bg-purple-50 text-purple-700 border-purple-200"
-            >
-              {skill.name}
-            </Badge>
+            <div key={index} className="relative group">
+              <Badge
+                className="bg-white text-purple-700 border border-purple-300 text-xs font-normal px-3 py-1.5 shadow-sm cursor-pointer transition-all hover:bg-purple-50 hover:border-purple-400 rounded-md"
+              >
+                {skill.name}
+              </Badge>
+              {/* Hover Tooltip */}
+              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-purple-600 text-white text-xs rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
+                <div className="flex flex-col gap-1">
+                  <div className="font-semibold">{getExperienceText(skill)}</div>
+                  {renderStars(skill.rating)}
+                </div>
+                {/* Arrow */}
+                <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-purple-600"></div>
+              </div>
+            </div>
           ))}
         </div>
       </div>
     );
   };
-
-  // New helper function to render the consent status badge
+ 
+  // Renders the consent status badge
   const renderConsentStatusBadge = () => {
     switch (employee.consentStatus) {
       case 'granted':
@@ -162,267 +249,181 @@ export const EmployeeInfoCard: React.FC<EmployeeInfoCardProps> = ({
         return <Badge variant="outline">Consent Not Requested</Badge>;
     }
   };
-
-
+ 
   return (
-    <Card className="bg-white w-full">
-      <CardHeader>
-        <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
-          <div className="flex-1">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-bold text-gray-900">
+    <Card className="bg-white w-full overflow-hidden border-none shadow-xl rounded-2xl">
+      <div className="p-6 border-b border-gray-200">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+         
+          <div>
+            <h2 className="text-3xl font-extrabold tracking-tight text-purple-700">
                 {employee.name}
-              </h2>
-              <div className="flex items-center gap-2">
-                {/* Render the status badge in the header for visibility */}
-                {/* {!shareMode && renderConsentStatusBadge()} */}
-                <Button onClick={navigateBack} variant="outline" size="sm">
-                  Back
-                </Button>
-              </div>
-            </div>
-            <div className="flex items-center mt-1 text-sm text-gray-500">
-              <Calendar className="w-4 h-4 mr-1" />
-              <span>Applied: {employee.joinDate}</span>
-            </div>
+            </h2>
+            {/* <p className="text-sm text-gray-500 mt-1">Applied: N/A</p> */}
+          </div>
+ 
+          <div className="flex items-center gap-3">
             {!shareMode && (
-              <div className="mt-4 space-y-4">
-                {/* --- SHARE LINK SECTION (EXISTING) --- */}
-                <Button
-                  variant="outline"
-                  className="flex items-center justify-center bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border-indigo-200 w-auto"
-                  onClick={onShareClick}
-                  disabled={isSharing || employee.id === "emp001"}
-                >
-                  {isSharing ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />{" "}
-                      Generating Link...
-                    </>
-                  ) : (
-                    <>
-                      <Share2 className="mr-2 h-4 w-4" /> Create Shareable Magic Link
-                    </>
-                  )}
-                </Button>
-                {magicLink && (
-                  <div className="p-3 bg-indigo-50 rounded-md border border-indigo-100 relative">
-                    <p className="text-xs text-indigo-700 mb-1 font-medium">
-                      Magic Link (expires in 2 days):
-                    </p>
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <Input
-                        value={magicLink}
-                        readOnly
-                        className="text-xs bg-white border-indigo-200 w-full"
-                      />
-                      <Button variant="ghost" size="sm" onClick={onCopyMagicLink}>
-                        {isCopied ? (
-                          <CheckCircle2 className="h-4 w-4 text-green-500" />
-                        ) : (
-                          <Copy className="h-4 w-4 text-indigo-500" />
-                        )}
-                      </Button>
-                    </div>
-                  </div>
-                )}
-                 {/* --- CONSENT LINK SECTION (NEW) --- */}
-                 {/* <Button
-                    variant="outline"
-                    className="flex items-center justify-center bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200 w-full"
-                    onClick={onGenerateConsentLink}
-                    disabled={isRequestingConsent || employee.id === "emp001" || employee.consentStatus === 'granted'}
-                >
-                  {isRequestingConsent ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Generating...
-                    </>
-                  ) : (
-                    <>
-                      <FileText className="mr-2 h-4 w-4" /> 
-                      {employee.consentStatus === 'pending' || employee.consentStatus === 'denied' ? 'Resend Consent Request' : 'Request Candidate Consent'}
-                    </>
-                  )}
-                </Button> */}
-                {consentLink && (
-                  <div className="p-3 bg-blue-50 rounded-md border border-blue-100 relative">
-                    <p className="text-xs text-blue-700 mb-1 font-medium">
-                      Consent Link (send to candidate):
-                    </p>
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <Input value={consentLink} readOnly className="text-xs bg-white border-blue-200 w-full" />
-                      <Button variant="ghost" size="sm" onClick={onCopyConsentLink}>
-                        {isConsentLinkCopied ? (
-                          <CheckCircle2 className="h-4 w-4 text-green-500" />
-                        ) : (
-                          <Copy className="h-4 w-4 text-blue-500" />
-                        )}
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
+                <VerificationProcessDialog
+                    candidate={candidateForVerification}
+                    organizationId={organizationId}
+                    userId={userId}
+                    isUanLoading={isUanLoading}
+                    uanData={uanData}
+                    lookupMethod={lookupMethod}
+                    setLookupMethod={setLookupMethod}
+                    lookupValue={lookupValue}
+                    setLookupValue={setLookupValue}
+                    onUanLookup={onUanLookup}
+                    documents={documents}
+                    shareMode={shareMode}
+                    onDocumentChange={onDocumentChange}
+                    onToggleEditing={onToggleEditing}
+                    onVerifyDocument={onVerifyDocument}
+                    onSaveDocuments={onSaveDocuments}
+                    isSavingDocuments={isSavingDocuments}
+                    isUanQueued={isUanQueued}
+                />
             )}
+           
+            {!shareMode && (
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex items-center space-x-2 px-3 h-9 bg-white text-black-600 border-purple-600 "
+                  >
+                    <Fingerprint className="w-4 h-4" />
+                    <span className="text-sm font-medium">Background Verification</span>
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-4xl w-full h-[80vh] p-0">
+                  <BgvVerificationSection candidate={candidateForVerification} />
+                </DialogContent>
+              </Dialog>
+            )}
+ 
+            <Button
+                size="sm"
+                className="flex items-center space-x-2 px-3 h-9 bg-purple-600 text-white shadow-lg hover:bg-purple-700"
+            >
+                <span className="text-sm font-medium">Resume</span>
+                <Separator orientation="vertical" className="h-4 bg-white/30" />
+                <Eye
+                    onClick={() => window.open(employee.resume, "_blank")}
+                    className="w-4 h-4 cursor-pointer"
+                    title="View Resume"
+                />
+                <Download
+                    onClick={() => {
+                        const link = document.createElement("a");
+                        link.href = employee.resume;
+                        link.download = `${employee.name}_Resume.pdf`;
+                        link.click();
+                        toast({ title: "Resume Download Started" });
+                    }}
+                    className="w-4 h-4 cursor-pointer"
+                    title="Download Resume"
+                />
+            </Button>
           </div>
-          <Button
-            variant="resume"
-            size="sm"
-            className="flex items-center space-x-2 px-3 py-1"
-          >
-            <span className="text-sm font-medium">Resume</span>
-            <Separator orientation="vertical" className="h-4 bg-gray-300" />
-            <span
-              onClick={() => window.open(employee.resume, "_blank")}
-              className="cursor-pointer hover:text-gray-800"
-              title="View Resume"
-            >
-              <Eye className="w-4 h-4" />
-            </span>
-            <span
-              onClick={() => {
-                const link = document.createElement("a");
-                link.href = employee.resume;
-                link.download = `${employee.name}_Resume.pdf`;
-                link.click();
-                toast({
-                  title: "Resume Download Started",
-                  description: "The resume is being downloaded.",
-                });
-              }}
-              className="cursor-pointer hover:text-gray-800"
-              title="Download Resume"
-            >
-              <Download className="w-4 h-4" />
-            </span>
-          </Button>
         </div>
-
-        {(!shareMode || sharedDataOptions?.personalInfo || sharedDataOptions?.contactInfo) && (
-          <div className="mt-6">
-            <Card className="border border-gray-200 bg-white shadow-sm w-full">
-              <CardContent className="p-4">
-                <div className="flex flex-col space-y-4">
-                  {(!shareMode || sharedDataOptions?.contactInfo) && (
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center text-sm space-y-2 sm:space-y-0 sm:space-x-4">
-                      <div className="flex items-center">
-                        <Mail className="w-4 h-4 mr-2 text-indigo-500" />
-                        <span className="text-gray-600">{employee.email}</span>
-                        <Button
-                          variant="copyicon"
-                          size="xs"
-                          onClick={() => {
-                            navigator.clipboard.writeText(employee.email);
-                            toast({
-                              title: "Email Copied",
-                              description: "Email address copied to clipboard.",
-                            });
-                          }}
-                          className="ml-2 text-indigo-500 hover:text-indigo-700"
-                        >
-                          <Copy className="w-4 h-4" />
-                        </Button>
-                      </div>
-                      <div className="flex items-center">
-                        <Phone className="w-4 h-4 mr-2 text-indigo-500" />
-                        <span className="text-gray-600">{employee.phone}</span>
-                        <Button
-                          variant="copyicon"
-                          size="xs"
-                          onClick={() => {
-                            navigator.clipboard.writeText(employee.phone);
-                            toast({
-                              title: "Phone Copied",
-                              description: "Phone number copied to clipboard.",
-                            });
-                          }}
-                          className="ml-2 text-indigo-500 hover:text-indigo-700"
-                        >
-                          <Copy className="w-4 h-4" />
-                        </Button>
-                      </div>
-                      <div className="flex items-center">
-                        {employee.linkedInId !== "N/A" ? (
-                          <a
-                            href={employee.linkedInId}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-indigo-500 hover:text-indigo-700"
-                          >
-                            <FaLinkedin className="w-6 h-6" />
-                          </a>
-                        ) : (
-                          <FaLinkedin className="w-4 h-4 text-gray-400" />
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  {(!shareMode || sharedDataOptions?.personalInfo) && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm mt-4">
-                      <div className="flex items-center">
-                        <FileBadge className="w-4 h-4 mr-2 text-indigo-500" />
-                        <span className="font-medium text-gray-700">Total Experience</span>
-                        <span className="mx-2 text-gray-300">•</span>
-                        <span className="text-gray-600">{employee.experience}</span>
-                      </div>
-                      <div className="flex items-center">
-                        <Award className="w-4 h-4 mr-2 text-indigo-500" />
-                        <span className="font-medium text-gray-700">Relevant Experience</span>
-                        <span className="mx-2 text-gray-300">•</span>
-                        <span className="text-gray-600">{employee.relvantExpyears} years and {employee.relvantExpmonths} months</span>
-                      </div>
-                      <div className="flex items-center">
-                        <MapPin className="w-4 h-4 mr-2 text-indigo-500" />
-                        <span className="font-medium text-gray-700">Current Location</span>
-                        <span className="mx-2 text-gray-300">•</span>
-                        <span className="text-gray-600">{employee.location}</span>
-                      </div>
-                      <div className="flex items-center">
-                        <MapPinPlus className="w-4 h-4 mr-2 text-indigo-500" />
-                        <span className="font-medium text-gray-700">Preferred Location</span>
-                        <span className="mx-2 text-gray-300">•</span>
-                        <span className="text-gray-600">{employee.preferedLocation}</span>
-                      </div>
-                      <div className="flex items-center">
-                        <Banknote className="w-4 h-4 mr-2 text-indigo-500" />
-                        <span className="font-medium text-gray-700">Current Salary</span>
-                        <span className="mx-2 text-gray-300">•</span>
-                        <span className="text-gray-600">{formatINR(employee.currentSalary)} LPA</span>
-                      </div>
-                      <div className="flex items-center">
-                        <Banknote className="w-4 h-4 mr-2 text-indigo-500" />
-                        <span className="font-medium text-gray-700">Expected Salary</span>
-                        <span className="mx-2 text-gray-300">•</span>
-                        <span className="text-gray-600">{formatINR(employee.expectedSalary)} LPA</span>
-                      </div>
-                      <div className="flex items-center">
-                        <Calendar className="w-4 h-4 mr-2 text-indigo-500" />
-                        <span className="font-medium text-gray-700">Notice Period</span>
-                        <span className="mx-2 text-gray-300">•</span>
-                        <span className="text-gray-600">{employee.noticePeriod} days</span>
-                      </div>
-                      <div className="flex items-center">
-                        <Briefcase className="w-4 h-4 mr-2 text-indigo-500" />
-                        <span className="font-medium text-gray-700">Has Offers</span>
-                        <span className="mx-2 text-gray-300">•</span>
-                        <span className="text-gray-600">{employee.hasOffers}</span>
-                      </div>
-                      {employee.hasOffers === "Yes" && (
-                        <div className="flex items-center col-span-1 sm:col-span-2">
-                          <FileText className="w-4 h-4 mr-2 text-indigo-500" />
-                          <span className="font-medium text-gray-700">Offer Details</span>
-                          <span className="mx-2 text-gray-300">•</span>
-                          <span className="text-gray-600">{employee.offerDetails}</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-            {(!shareMode || sharedDataOptions?.personalInfo) && renderSkills()}
+      </div>
+ 
+      <CardContent className="p-6">
+        {/* Contact Info - Simple Line by Line */}
+        <div className="flex flex-wrap items-center gap-x-8 gap-y-3 mb-6">
+          <div
+              className="relative flex items-center cursor-pointer group"
+              onClick={() => {
+                  navigator.clipboard.writeText(employee.email);
+                  toast({ title: "Email Copied!", description: employee.email });
+              }}
+          >
+              <Mail className="w-4 h-4 mr-2 text-purple-600 flex-shrink-0"/>
+              <span className="text-sm text-gray-700">{employee.email}</span>
           </div>
-        )}
-      </CardHeader>
+          <div
+              className="relative flex items-center cursor-pointer group"
+              onClick={() => {
+                  navigator.clipboard.writeText(employee.phone);
+                  toast({ title: "Phone Copied!", description: employee.phone });
+              }}
+          >
+              <Phone className="w-4 h-4 mr-2 text-purple-600 flex-shrink-0"/>
+              <span className="text-sm text-gray-700">{employee.phone}</span>
+          </div>
+          <a href={employee.linkedInId} target="_blank" rel="noopener noreferrer" className="flex items-center group">
+              <FaLinkedin className="w-4 h-4 mr-2 text-purple-600 flex-shrink-0" />
+              <span className="text-sm text-purple-700 group-hover:underline">LinkedIn Profile</span>
+          </a>
+        </div>
+ 
+        <Separator className="my-6"/>
+ 
+        {/* Info Grid - Simple Line by Line */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-x-8 gap-y-4">
+            <div className="flex items-center">
+              <Briefcase className="w-4 h-4 mr-2 text-purple-600 flex-shrink-0" />
+              <div>
+                <p className="text-xs text-gray-500 uppercase">Total Experience</p>
+                <p className="text-sm font-medium text-gray-800">{employee.experience}</p>
+              </div>
+            </div>
+            <div className="flex items-center">
+              <Star className="w-4 h-4 mr-2 text-purple-600 flex-shrink-0" />
+              <div>
+                <p className="text-xs text-gray-500 uppercase">Relevant Experience</p>
+                <p className="text-sm font-medium text-gray-800">N/A</p>
+              </div>
+            </div>
+            <div className="flex items-center">
+              <MapPin className="w-4 h-4 mr-2 text-purple-600 flex-shrink-0" />
+              <div>
+                <p className="text-xs text-gray-500 uppercase">Current Location</p>
+                <p className="text-sm font-medium text-gray-800">{employee.location}</p>
+              </div>
+            </div>
+            <div className="flex items-center">
+              <Building className="w-4 h-4 mr-2 text-purple-600 flex-shrink-0" />
+              <div>
+                <p className="text-xs text-gray-500 uppercase">Preferred Location</p>
+                <p className="text-sm font-medium text-gray-800">{employee.preferedLocation}</p>
+              </div>
+            </div>
+            <div className="flex items-center">
+              <Banknote className="w-4 h-4 mr-2 text-purple-600 flex-shrink-0" />
+              <div>
+                <p className="text-xs text-gray-500 uppercase">Current Salary</p>
+                <p className="text-sm font-medium text-gray-800">{formatINR(employee.currentSalary)} LPA</p>
+              </div>
+            </div>
+            <div className="flex items-center">
+              <Banknote className="w-4 h-4 mr-2 text-purple-600 flex-shrink-0" />
+              <div>
+                <p className="text-xs text-gray-500 uppercase">Expected Salary</p>
+                <p className="text-sm font-medium text-gray-800">{formatINR(employee.expectedSalary)} LPA</p>
+              </div>
+            </div>
+            <div className="flex items-center">
+              <Calendar className="w-4 h-4 mr-2 text-purple-600 flex-shrink-0" />
+              <div>
+                <p className="text-xs text-gray-500 uppercase">Notice Period</p>
+                <p className="text-sm font-medium text-gray-800">{employee.noticePeriod} </p>
+              </div>
+            </div>
+            <div className="flex items-center">
+              <UserCheck className="w-4 h-4 mr-2 text-purple-600 flex-shrink-0" />
+              <div>
+                <p className="text-xs text-gray-500 uppercase">Has Offers</p>
+                <p className="text-sm font-medium text-gray-800">{employee.hasOffers}</p>
+              </div>
+            </div>
+        </div>
+       
+        {renderSkills()}
+      </CardContent>
     </Card>
   );
 };

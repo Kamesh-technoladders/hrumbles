@@ -1,58 +1,43 @@
+// utils/jobFormValidation.ts
 
 import { JobFormData } from "../hooks/useJobFormState";
 
-export const getTotalSteps = (jobType: "Internal" | "External"): number => {
-  if (jobType === "Internal") {
-    return 3; // Job Info, Experience & Skills, Job Description
-  } else { // External
-    return 4; // Client Details, Job Info, Experience & Skills, Job Description
-  }
+type JobType = "Internal" | "External";
+type InternalType = "Inhouse" | "Client Side" | null;
+
+export const getTotalSteps = (jobType: JobType, internalType: InternalType): number => {
+  // --- FIX: ALL flows are now 2 steps. ---
+  return 2;
 };
 
-export const validateStep = (step: number, formData: JobFormData, jobType: "Internal" | "External"): boolean => {
- 
-  console.log("Validating Step:", step);
-  console.log("Form Data:", formData);
-  if (jobType === "Internal") {
-    // Validation for Internal jobs
+export const validateStep = (step: number, formData: JobFormData, jobType: JobType, internalType: InternalType): boolean => {
+  // This is the "Inhouse" flow logic
+  if (jobType === "Internal" && internalType === "Inhouse") {
     switch(step) {
-      case 1: // Job Information
-        return formData.jobInformation.jobId.trim() !== "" && 
-               formData.jobInformation.jobTitle.trim() !== "" &&
-               formData.jobInformation.jobLocation.length > 0 &&
+      case 1:
+        if (!formData.jobInformation) return false;
+        return formData.jobInformation.jobId?.trim() !== "" && 
+               formData.jobInformation.jobTitle?.trim() !== "" &&
+               formData.jobInformation.jobLocation?.length > 0 &&
                formData.jobInformation.hiringMode !== "";
-      
-      case 2: // Experience & Skills
-        return formData.experienceSkills.skills.length > 0 &&
-               (formData.experienceSkills.minimumYear > 0 || formData.experienceSkills.minimumMonth > 0);
-      
-      case 3: // Job Description
-        return formData.jobDescription.description.length >= 50;
-      
+      case 2:
+        if (!formData.jobDescription) return false; 
+        return formData.jobDescription.description.length >= 100 &&
+               formData.jobDescription.skills.length > 0;
       default:
-        return true;
+        return false;
     }
   } else {
-    // Validation for External jobs
+    // --- FIX: This is the new validation for the 2-step "External" and "Client Side" flows ---
     switch(step) {
-      case 1: // Client Details
-        return formData.clientDetails.clientName.trim() !== "" &&
-               formData.clientDetails.clientBudget.trim() !== "";
-      
-      case 2: // Job Information
-        return formData.jobInformation.jobId.trim() !== "" && 
-               formData.jobInformation.jobTitle.trim() !== "" &&
-               formData.jobInformation.jobLocation.length > 0;
-      
-      case 3: // Experience & Skills
-        return formData.experienceSkills.skills.length > 0 &&
-               (formData.experienceSkills.minimumYear > 0 || formData.experienceSkills.minimumMonth > 0);
-      
-      case 4: // Job Description
-        return formData.jobDescription.description.length >= 50;
-      
+      case 1: // This is the new, combined step
+        // Validate a key field from both sections
+        return !!formData.clientDetails?.clientName?.trim() && 
+               !!formData.jobInformation?.jobId?.trim();
+      case 2: // This is the Job Description step
+        return !!formData.jobDescription && formData.jobDescription.description.length >= 100;
       default:
-        return true;
+        return false;
     }
   }
 };

@@ -22,7 +22,7 @@ import { useLocation, Link, useNavigate } from "react-router-dom";
 import { logout } from "../../Redux/authSlice";
 import { ChevronDownIcon, ChevronUpIcon } from "@chakra-ui/icons";
 import { menuItemsByRole } from "./SidebarMenuItem";
-import { ArrowRightFromLine, ArrowLeftToLine } from 'lucide-react';
+import { ArrowRightFromLine, ArrowLeftToLine, BarChart3, TrendingUp } from 'lucide-react';
 import supabase from "../../config/supabaseClient";
 
 const MenuItem = ({ item, isExpanded, location, openDropdown, handleDropdownToggle }) => {
@@ -62,7 +62,28 @@ const MenuItem = ({ item, isExpanded, location, openDropdown, handleDropdownTogg
           <Icon as={icon} fontSize="16px" color={isActive ? activeColor : iconColor} _groupHover={{ color: hoverTextColor }} />
           {isExpanded && (
             <Flex justify="space-between" align="center" w="full" ml={4} >
-              <Text fontWeight="medium">{label}</Text>
+              <Box position="relative" display="inline-block">
+  <Text fontWeight="medium">{label}</Text>
+  {item.beta && (
+    <Box
+      position="absolute"
+      top="-5px"
+      right="-34px"
+      fontSize="9px"
+      fontWeight="bold"
+      px={1.5}
+      py="1px"
+      borderRadius="sm"
+      bg="red.500"
+      color="white"
+      lineHeight="1"
+      textTransform="uppercase"
+    >
+      Beta
+    </Box>
+  )}
+</Box>
+
               {dropdown && (
                 <Icon
                   as={isDropdownOpen ? ChevronUpIcon : ChevronDownIcon}
@@ -226,6 +247,7 @@ const NewSidebar = ({ isExpanded, toggleSidebar }) => {
               .from("hr_departments")
               .select("name")
               .eq("id", employeeData.department_id)
+              .eq('organization_id', organizationId)
               .single();
             if (departmentError) throw departmentError;
             setDepartmentName(departmentData.name || "Unknown Department");
@@ -239,6 +261,7 @@ const NewSidebar = ({ isExpanded, toggleSidebar }) => {
               .from("hr_designations")
               .select("name")
               .eq("id", employeeData.designation_id)
+              .eq('organization_id', organizationId)
               .single();
             if (designationError) throw designationError;
             setDesignationName(designationData.name || "Unknown Designation");

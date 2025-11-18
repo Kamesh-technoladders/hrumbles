@@ -1,251 +1,64 @@
-import React, { useState, useMemo, useCallback } from "react";
+// src/components/goals/employee/EmployeeGoalDashboard.tsx
+
+import React, { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getEmployeeGoals } from "@/lib/supabaseData";
-import { Employee, GoalType, GoalWithDetails, GoalInstance } from "@/types/goal";
+import { Employee, GoalWithDetails } from "@/types/goal";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { BarChart3, CheckCircle2, AlertTriangle, Users } from "lucide-react";
+import EmployeeGoalCard from "./EmployeeGoalCard"; // This will be our new card component
+import { Doughnut, Bar } from "react-chartjs-2";
 import {
-  BarChart3,
-  CheckCircle2,
-  AlertTriangle,
-  Clock,
-  PieChart,
-  Calendar
-} from "lucide-react";
-import EmployeeGoalCard from "./EmployeeGoalCard";
-import GoalPieChart from "../charts/GoalPieChart";
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  ArcElement,
+  LineElement,    
+  PointElement,   
+  LineController,  
+  BarController,
+  Title,
+  Tooltip,
+  Legend,
+} from "chart.js";
+import { motion, AnimatePresence } from "framer-motion";
+import AnimatedCard from "@/components/ui/custom/AnimatedCard";
+import { Badge } from "@/components/ui/badge";
 import GoalProgressTable from "../common/GoalProgressTable";
-import { Button } from "@/components/ui/button";
-import { format } from 'date-fns';
+
+// Register Chart.js components
+ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, LineElement, PointElement, LineController, BarController, Title, Tooltip, Legend);
 
 interface EmployeeGoalDashboardProps {
   employee: Employee;
 }
 
 const EmployeeGoalDashboard: React.FC<EmployeeGoalDashboardProps> = ({ employee }) => {
-  const [selectedStatus, setSelectedStatus] = useState<string>("all");
-  const [selectedGoalType, setSelectedGoalType] = useState<string>("all");
-  const [showHistory, setShowHistory] = useState<boolean>(false);
-  const [updatedInstances, setUpdatedInstances] = useState<Record<string, Partial<GoalInstance>>>({});
-
-  const { data: goals, isLoading, error } = useQuery({
+  const [chartTimeframe, setChartTimeframe] = useState<'day' | 'week' | 'month' | 'year'>('week');
+  const { data: goals, isLoading, error, refetch } = useQuery({
     queryKey: ["employeeGoals", employee.id],
     queryFn: () => getEmployeeGoals(employee.id),
     enabled: !!employee.id,
   });
 
-  console.log('Raw Goals Data for Employee', {
-    employeeId: employee.id,
-    goals: goals?.map(goal => ({
-      id: goal.id,
-      name: goal.name,
-      instances: goal.instances?.map(instance => ({
-        id: instance.id,
-        assignedGoalId: instance.assignedGoalId,
-        periodStart: instance.periodStart,
-        periodEnd: instance.periodEnd,
-        targetValue: instance.targetValue,
-        currentValue: instance.currentValue,
-        progress: instance.progress,
-        status: instance.status,
-        goalType: goal.assignmentDetails?.find(ad => ad.id === instance.assignedGoalId)?.goalType
-      }))
-    })),
-    fetchTime: new Date().toISOString()
-  });
-
-  // Callback to handle instance updates from EmployeeGoalCard
-  const handleInstanceUpdate = useCallback((instanceId: string, updates: Partial<GoalInstance>) => {
-    setUpdatedInstances(prev => ({
-      ...prev,
-      [instanceId]: { ...prev[instanceId], ...updates }
-    }));
-    console.log('Instance Updated', { instanceId, updates });
-  }, []);
-
-  // Merge raw goal instances with updated instances
-  const mergedGoals = useMemo(() => {
-    if (!goals) return [];
-    return goals.map(goal => ({
-      ...goal,
-      instances: (goal.instances || []).map(instance => ({
-        ...instance,
-        ...updatedInstances[instance.id]
-      }))
-    }));
-  }, [goals, updatedInstances]);
-
-  // Separate function to filter by goal type
-  const filterByGoalType = (goals: GoalWithDetails[], goalType: string): GoalWithDetails[] => {
-    if (!goals || goalType === "all") return goals || [];
-    const filtered = goals.filter(goal => {
-      const hasMatchingGoalType = goal.assignmentDetails?.some(ad =>
-        ad.goalType.toLowerCase() === goalType.toLowerCase()
-      );
-      if (!hasMatchingGoalType) {
-        console.warn('Goal Type Filter: No matching goal type', {
-          goalId: goal.id,
-          goalName: goal.name,
-          requestedGoalType: goalType,
-          availableGoalTypes: goal.assignmentDetails?.map(ad => ad.goalType) || []
-        });
-      }
-      return hasMatchingGoalType;
-    });
-    console.log('Goal Type Filter Applied', {
-      selectedGoalType: goalType,
-      availableGoalTypes: goals.flatMap(goal => goal.assignmentDetails?.map(ad => ad.goalType) || []),
-      filteredGoals: filtered.map(goal => ({
-        id: goal.id,
-        name: goal.name,
-        goalTypes: goal.assignmentDetails?.map(ad => ad.goalType)
-      }))
-    });
-    return filtered;
-  };
-
-  // Separate function to filter instances by status
-  const filterByStatus = (instances: GoalInstance[], status: string): GoalInstance[] => {
-    if (!instances || status === "all") return instances || [];
-    const filtered = instances.filter(instance => {
-      const matches = instance.status === status;
-      if (!matches) {
-        console.warn('Status Filter: No match', {
-          instanceId: instance.id,
-          requestedStatus: status,
-          actualStatus: instance.status
-        });
-      }
-      return matches;
-    });
-    return filtered;
-  };
-
-  // Separate function to filter instances by history/current
-  const filterByHistory = (instances: GoalInstance[], showHistory: boolean): GoalInstance[] => {
-    if (showHistory) return instances;
-
-    // Get current date in IST (UTC+5:30)
-    const now = new Date();
-    const istOffsetMinutes = 5 * 60 + 30; // 5 hours 30 minutes
-    const istTime = new Date(now.getTime() + istOffsetMinutes * 60 * 1000);
-    const todayStr = format(istTime, 'yyyy-MM-dd');
-
-    return instances.filter(instance => {
-      try {
-        // Parse periodStart and periodEnd as UTC dates
-        const startDate = new Date(instance.periodStart + 'Z'); // Append 'Z' to treat as UTC
-        const endDate = new Date(instance.periodEnd + 'Z');
-
-        // Convert to IST by adding 5:30 hours
-        const startDateIST = new Date(startDate.getTime() + istOffsetMinutes * 60 * 1000);
-        const endDateIST = new Date(endDate.getTime() + istOffsetMinutes * 60 * 1000);
-
-        // Format dates to yyyy-MM-dd
-        const startDateStr = format(startDateIST, 'yyyy-MM-dd');
-        const endDateStr = format(endDateIST, 'yyyy-MM-dd');
-
-        const isCurrent = startDateStr <= todayStr && endDateStr >= todayStr;
-        if (!isCurrent) {
-          console.warn('History Filter: Excluded non-current instance', {
-            instanceId: instance.id,
-            startDateStr,
-            endDateStr,
-            todayStr,
-            periodStartRaw: instance.periodStart,
-            periodEndRaw: instance.periodEnd
-          });
-        }
-        return isCurrent;
-      } catch (error) {
-        console.error('History Filter: Invalid date', {
-          instanceId: instance.id,
-          periodStart: instance.periodStart,
-          periodEnd: instance.periodEnd,
-          error
-        });
-        return false;
-      }
-    });
-  };
-
-  // Combined filtering logic
-  const filteredGoals = useMemo(() => {
-    const filteredByType = filterByGoalType(mergedGoals, selectedGoalType);
-    const result = filteredByType.flatMap(goal => {
-      const instances = goal.instances || [];
-      let filteredInstances = filterByStatus(instances, selectedStatus);
-      filteredInstances = filterByHistory(filteredInstances, showHistory);
-      return filteredInstances.map(instance => ({ goal, instance }));
-    });
-
-    console.log('Filtered Goals', {
-      selectedStatus,
-      selectedGoalType,
-      showHistory,
-      goalCount: result.length,
-      goals: result.map(({ goal, instance }) => ({
-        goalId: goal.id,
-        instanceId: instance.id,
-        status: instance.status,
-        goalType: goal.assignmentDetails?.find(ad => ad.id === instance.assignedGoalId)?.goalType,
-        periodStart: instance.periodStart,
-        periodEnd: instance.periodEnd
-      }))
-    });
-
-    return result;
-  }, [mergedGoals, selectedGoalType, selectedStatus, showHistory]);
-
-  // Calculate summary statistics
   const stats = useMemo(() => {
-    const filteredByType = filterByGoalType(mergedGoals, selectedGoalType);
-    const allInstances = filteredByType.flatMap(goal => goal.instances || []);
+    if (!goals) {
+      return { totalGoals: 0, completedGoals: 0, inProgressGoals: 0, overdueGoals: 0, pendingGoals: 0, goalsByType: {}, completionRate: 0 };
+    }
+    const allInstances = goals.flatMap(goal => goal.instances || []);
     const totalGoals = allInstances.length;
     const completedGoals = allInstances.filter(instance => instance.status === "completed").length;
     const inProgressGoals = allInstances.filter(instance => instance.status === "in-progress").length;
     const overdueGoals = allInstances.filter(instance => instance.status === "overdue").length;
     const pendingGoals = allInstances.filter(instance => instance.status === "pending").length;
 
-    const goalsByType = filteredByType
-      .flatMap(goal => 
-        goal.instances?.map(instance => ({
-          instance,
-          goalType: goal.assignmentDetails?.find(ad => ad.id === instance.assignedGoalId)?.goalType
-        })) || []
-      )
-      .reduce((acc, { goalType }) => {
-        if (goalType) {
-          acc[goalType] = (acc[goalType] || 0) + 1;
-        }
+    const goalsByType = goals.flatMap(goal => goal.assignmentDetails || [])
+      .reduce((acc, detail) => {
+        acc[detail.goalType] = (acc[detail.goalType] || 0) + 1;
         return acc;
       }, {} as Record<string, number>);
-
-    const goalsByStatus = {
-      completed: completedGoals,
-      inProgress: inProgressGoals,
-      overdue: overdueGoals,
-      pending: pendingGoals
-    };
-
-    console.log('Stats Debug', {
-      totalGoals,
-      completedGoals,
-      inProgressGoals,
-      overdueGoals,
-      pendingGoals,
-      goalsByType,
-      goalsByStatus,
-      allInstances: allInstances.map(instance => ({
-        instanceId: instance.id,
-        status: instance.status,
-        goalType: filteredByType
-          .flatMap(goal => goal.assignmentDetails || [])
-          .find(ad => ad.id === instance.assignedGoalId)?.goalType
-      }))
-    });
 
     return {
       totalGoals,
@@ -254,24 +67,243 @@ const EmployeeGoalDashboard: React.FC<EmployeeGoalDashboardProps> = ({ employee 
       overdueGoals,
       pendingGoals,
       goalsByType,
-      goalsByStatus,
       completionRate: totalGoals ? Math.round((completedGoals / totalGoals) * 100) : 0
     };
-  }, [mergedGoals, selectedGoalType]);
+  }, [goals]);
+
+  const statusCounts = useMemo(() => {
+    if (!goals) {
+      return { pending: 0, 'in-progress': 0, completed: 0, overdue: 0 };
+    }
+    const counts: Record<string, number> = { pending: 0, 'in-progress': 0, completed: 0, overdue: 0 };
+    const allInstances = goals.flatMap(goal => goal.instances || []);
+    allInstances.forEach(instance => {
+      const s = instance.status || 'pending';
+      counts[s] = (counts[s] || 0) + 1;
+    });
+    return counts;
+  }, [goals]);
+
+  const pieData = useMemo(() => {
+    const labels = Object.keys(statusCounts);
+    const data = Object.values(statusCounts);
+    const backgroundColors = {
+      pending: 'rgba(156, 163, 175, 0.8)',
+      'in-progress': 'rgba(59, 130, 246, 0.8)',
+      completed: 'rgba(34, 197, 94, 0.8)',
+      overdue: 'rgba(239, 68, 68, 0.8)',
+    };
+    return {
+      labels,
+      datasets: [{
+        data,
+        backgroundColor: labels.map(label => backgroundColors[label as keyof typeof backgroundColors]),
+        borderWidth: 2,
+        borderColor: '#fff',
+        hoverOffset: 10,
+      }],
+    };
+  }, [statusCounts]);
+
+  const pieOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'bottom' as const,
+        labels: { font: { size: 10 }, padding: 15 },
+      },
+      title: {
+        display: true,
+        text: "Assignment Status Distribution",
+        font: { size: 14, weight: 'bold' },
+      },
+    },
+    animation: { 
+      animateRotate: true,
+      duration: 1000,
+    },
+  };
+
+  const periodTypeData = useMemo(() => {
+    if (!goals) {
+      return { labels: [], datasets: [] };
+    }
+    const typeStats: Record<string, { count: number; totalProgress: number }> = {
+      Daily: { count: 0, totalProgress: 0 },
+      Weekly: { count: 0, totalProgress: 0 },
+      Monthly: { count: 0, totalProgress: 0 },
+      Yearly: { count: 0, totalProgress: 0 },
+    };
+
+    goals.forEach(goal => {
+      goal.assignments?.forEach(a => {
+        let type = a.goalType as string;
+        // Normalize type to title case to handle potential case mismatches
+        if (type) {
+          type = type.charAt(0).toUpperCase() + type.slice(1).toLowerCase();
+        }
+        if (type && typeStats[type]) {
+          typeStats[type].count += 1;
+          typeStats[type].totalProgress += a.progress || 0;
+        }
+      });
+    });
+
+    const labels = ['Daily', 'Weekly', 'Monthly', 'Yearly'];
+    const countData = labels.map(label => typeStats[label].count);
+    const avgProgressData = labels.map(label => 
+      typeStats[label].count > 0 
+        ? Math.round(typeStats[label].totalProgress / typeStats[label].count) 
+        : 0
+    );
+
+    return {
+      labels,
+      datasets: [
+        {
+          label: 'Assignments Count',
+          data: countData,
+          backgroundColor: (ctx: any) => {
+            const chart = ctx.chart;
+            const { ctx: chartCtx, chartArea } = chart;
+            if (!chartArea) return 'rgba(59, 130, 246, 0.6)';
+            const gradient = chartCtx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
+            gradient.addColorStop(0, 'rgba(59, 130, 246, 0.8)');
+            gradient.addColorStop(1, 'rgba(59, 130, 246, 0.2)');
+            return gradient;
+          },
+          borderColor: 'rgba(59, 130, 246, 1)',
+          borderWidth: 1,
+          yAxisID: 'y',
+          borderRadius: 4,
+        },
+        {
+          type: 'line' as const,
+          label: 'Average Progress (%)',
+          data: avgProgressData,
+          borderColor: 'rgba(34, 197, 94, 1)',
+          backgroundColor: 'rgba(34, 197, 94, 0.1)',
+          yAxisID: 'y1',
+          tension: 0.4,
+          pointRadius: 5,
+          pointHoverRadius: 7,
+          pointBackgroundColor: 'rgba(34, 197, 94, 1)',
+        },
+      ],
+    };
+  }, [goals]);
+
+  const periodTypeOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: "top" as const,
+        labels: { 
+          font: { size: 11 },
+          padding: 15,
+          usePointStyle: true,
+        },
+      },
+      title: {
+        display: true,
+        text: "Performance by Period Type",
+        font: { size: 14, weight: 'bold' },
+        padding: { top: 10, bottom: 15 },
+      },
+      tooltip: { 
+        mode: 'index' as const,
+        intersect: false,
+        bodyFont: { size: 11 },
+        titleFont: { size: 12 },
+        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+        cornerRadius: 6,
+      },
+    },
+    scales: {
+      y: {
+        type: 'linear' as const,
+        display: true,
+        position: 'left' as const,
+        beginAtZero: true,
+        title: { 
+          display: true, 
+          text: "Assignments Count", 
+          font: { size: 11, weight: 'bold' },
+          color: 'rgba(59, 130, 246, 1)',
+        },
+        ticks: { 
+          font: { size: 9 },
+          color: 'rgba(59, 130, 246, 0.7)',
+        },
+        grid: {
+          color: 'rgba(0, 0, 0, 0.05)',
+        },
+      },
+      y1: {
+        type: 'linear' as const,
+        display: true,
+        position: 'right' as const,
+        beginAtZero: true,
+        max: 100,
+        grid: {
+          drawOnChartArea: false,
+        },
+        title: { 
+          display: true, 
+          text: "Avg Progress (%)", 
+          font: { size: 11, weight: 'bold' },
+          color: 'rgba(34, 197, 94, 1)',
+        },
+        ticks: { 
+          font: { size: 9 },
+          color: 'rgba(34, 197, 94, 0.7)',
+        },
+      },
+      x: {
+        ticks: {
+          font: { size: 10 },
+          color: 'rgba(0, 0, 0, 0.6)',
+        },
+        grid: {
+          color: 'rgba(0, 0, 0, 0.05)',
+        },
+      },
+    },
+    interaction: {
+      mode: 'nearest' as const,
+      axis: 'x' as const,
+      intersect: false,
+    },
+    animation: {
+      duration: 1000,
+      easing: 'easeInOutQuart',
+    },
+  };
+
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.1,
+        delayChildren: 0.2,
+      },
+    },
+  };
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: "easeOut" } },
+  };
 
   if (isLoading) {
     return (
       <div className="space-y-4">
         <Card>
-          <CardHeader>
-            <Skeleton className="h-8 w-64" />
-            <Skeleton className="h-4 w-32" />
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Skeleton className="h-20 w-full" />
-            <Skeleton className="h-20 w-full" />
-            <Skeleton className="h-20 w-full" />
-          </CardContent>
+          <CardHeader><Skeleton className="h-8 w-64" /></CardHeader>
+          <CardContent className="space-y-4"><Skeleton className="h-40 w-full" /></CardContent>
         </Card>
       </div>
     );
@@ -280,13 +312,9 @@ const EmployeeGoalDashboard: React.FC<EmployeeGoalDashboardProps> = ({ employee 
   if (error || !goals || goals.length === 0) {
     return (
       <Card>
-        <CardContent className="py-10">
-          <div className="text-center">
-            <h3 className="text-lg font-medium">No Goals Assigned</h3>
-            <p className="text-gray-500 mt-2">
-              This employee doesn't have any goals assigned yet.
-            </p>
-          </div>
+        <CardContent className="py-10 text-center">
+          <h3 className="text-lg font-medium">No Goals Assigned</h3>
+          <p className="text-gray-500 mt-2">This employee doesn't have any goals assigned yet.</p>
         </CardContent>
       </Card>
     );
@@ -294,229 +322,158 @@ const EmployeeGoalDashboard: React.FC<EmployeeGoalDashboardProps> = ({ employee 
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-2xl font-bold">{stats.totalGoals}</CardTitle>
-            <CardDescription>Total Goals</CardDescription>
+      {/* Stats Cards */}
+      <motion.div
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"
+      >
+        <motion.div variants={itemVariants} className="group">
+          <AnimatedCard
+            animation="fade"
+            delay={100}
+            className="flex flex-col items-center text-center hover:bg-gradient-to-br hover:from-blue-50 hover:to-indigo-50 border border-gray-100/50 transition-all duration-500"
+          >
+            <div className="h-12 w-12 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform duration-300">
+              <BarChart3 className="h-6 w-6 text-white" />
+            </div>
+            <h3 className="text-2xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors duration-300">{stats.totalGoals}</h3>
+            <p className="text-gray-500 text-sm font-medium mt-1">Total Goal Instances</p>
+          </AnimatedCard>
+        </motion.div>
+        <motion.div variants={itemVariants} className="group">
+          <AnimatedCard
+            animation="fade"
+            delay={200}
+            className="flex flex-col items-center text-center hover:bg-gradient-to-br hover:from-green-50 hover:to-emerald-50 border border-gray-100/50 transition-all duration-500"
+          >
+            <div className="h-12 w-12 rounded-full bg-gradient-to-r from-green-500 to-emerald-600 flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform duration-300">
+              <CheckCircle2 className="h-6 w-6 text-white" />
+            </div>
+            <h3 className="text-2xl font-bold text-gray-900 group-hover:text-green-600 transition-colors duration-300">{stats.completedGoals}</h3>
+            <p className="text-gray-500 text-sm font-medium mt-1">Completed</p>
+            <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200 mt-1 animate-pulse">
+              {stats.completionRate}% Rate
+            </Badge>
+          </AnimatedCard>
+        </motion.div>
+        <motion.div variants={itemVariants} className="group">
+          <AnimatedCard
+            animation="fade"
+            delay={300}
+            className="flex flex-col items-center text-center hover:bg-gradient-to-br hover:from-blue-50 hover:to-indigo-50 border border-gray-100/50 transition-all duration-500"
+          >
+            <div className="h-12 w-12 rounded-full bg-gradient-to-r from-indigo-500 to-blue-600 flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform duration-300">
+              <BarChart3 className="h-6 w-6 text-white" />
+            </div>
+            <h3 className="text-2xl font-bold text-gray-900 group-hover:text-indigo-600 transition-colors duration-300">{stats.inProgressGoals}</h3>
+            <p className="text-gray-500 text-sm font-medium mt-1">In Progress</p>
+          </AnimatedCard>
+        </motion.div>
+        <motion.div variants={itemVariants} className="group">
+          <AnimatedCard
+            animation="fade"
+            delay={400}
+            className="flex flex-col items-center text-center hover:bg-gradient-to-br hover:from-red-50 hover:to-rose-50 border border-gray-100/50 transition-all duration-500"
+          >
+            <div className="h-12 w-12 rounded-full bg-gradient-to-r from-red-500 to-rose-600 flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform duration-300">
+              <AlertTriangle className="h-6 w-6 text-white" />
+            </div>
+            <h3 className="text-2xl font-bold text-gray-900 group-hover:text-red-600 transition-colors duration-300">{stats.overdueGoals}</h3>
+            <p className="text-gray-500 text-sm font-medium mt-1">Overdue</p>
+          </AnimatedCard>
+        </motion.div>
+      </motion.div>
+
+      {/* Charts Section */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, delay: 0.3 }}
+        className="grid grid-cols-1 md:grid-cols-2 gap-6"
+      >
+        <Card className="bg-white/80 backdrop-blur-sm shadow-xl rounded-2xl border border-gray-200/50 overflow-hidden">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg font-bold text-gray-900">Performance by Period Type</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-2 mt-2">
-              {Object.entries(stats.goalsByType).map(([type, count]) => (
-                <Badge key={type} variant="outline">
-                  {count} {type}
-                </Badge>
-              ))}
+          <CardContent className="p-0">
+            <div className="h-[300px] p-6">
+              <Bar data={periodTypeData} options={periodTypeOptions as any} />
             </div>
           </CardContent>
         </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-5 w-5 text-green-500" />
-              <CardTitle className="text-2xl font-bold">{stats.completedGoals}</CardTitle>
-            </div>
-            <CardDescription>Completed</CardDescription>
+        <Card className="bg-white/80 backdrop-blur-sm shadow-xl rounded-2xl border border-gray-200/50 overflow-hidden">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg font-bold text-gray-900">Status Breakdown</CardTitle>
           </CardHeader>
-          <CardContent>
-            <Progress
-              value={stats.totalGoals > 0 ? (stats.completedGoals / stats.totalGoals) * 100 : 0}
-              className="h-2 mt-2"
-            />
+          <CardContent className="p-0">
+            <div className="h-[300px] p-6">
+              <Doughnut data={pieData} options={pieOptions as any} />
+            </div>
           </CardContent>
         </Card>
+      </motion.div>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center gap-2">
-              <BarChart3 className="h-5 w-5 text-blue-500" />
-              <CardTitle className="text-2xl font-bold">{stats.inProgressGoals}</CardTitle>
-            </div>
-            <CardDescription>In Progress</CardDescription>
+      {/* Goal Performance Summary */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, delay: 0.4 }}
+      >
+        <Card className="bg-white/80 backdrop-blur-sm shadow-xl rounded-2xl border border-gray-200/50 overflow-hidden">
+          <CardHeader className="pb-4">
+            <CardTitle className="text-xl font-bold text-gray-900">Goal Performance Summary</CardTitle>
           </CardHeader>
           <CardContent>
-            <Progress
-              value={stats.totalGoals > 0 ? (stats.inProgressGoals / stats.totalGoals) * 100 : 0}
-              className="h-2 mt-2"
-            />
+            <GoalProgressTable employee={employee} goalStats={stats} />
           </CardContent>
         </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-red-500" />
-              <CardTitle className="text-2xl font-bold">{stats.overdueGoals}</CardTitle>
-            </div>
-            <CardDescription>Overdue</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Progress
-              value={stats.totalGoals > 0 ? (stats.overdueGoals / stats.totalGoals) * 100 : 0}
-              className="h-2 mt-2"
-            />
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card>
+      </motion.div>
+      
+      {/* Main Goal Cards Section */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.6, delay: 0.5 }}
+      >
+        <Card className="bg-white/80 backdrop-blur-sm shadow-lg rounded-xl border border-gray-200/50">
           <CardHeader>
-            <CardTitle>Goal Status Distribution</CardTitle>
-          </CardHeader>
-          <CardContent className="flex justify-center items-center">
-            <GoalPieChart 
-              data={[
-                { name: 'Completed', value: stats.completedGoals, color: '#10b981' },
-                { name: 'In Progress', value: stats.inProgressGoals, color: '#3b82f6' },
-                { name: 'Overdue', value: stats.overdueGoals, color: '#ef4444' },
-                { name: 'Pending', value: stats.pendingGoals, color: '#f59e0b' }
-              ]}
-            />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Goal Performance Summary</CardTitle>
+            <CardTitle>My Goals</CardTitle>
+            <CardDescription>Select a goal type within each card to view and update progress for the current period.</CardDescription>
           </CardHeader>
           <CardContent>
-            <GoalProgressTable 
-              employee={employee} 
-              goalStats={stats}
-            />
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <div className="flex justify-between items-center">
-            <CardTitle>Goal Status</CardTitle>
-            <div className="flex items-center space-x-2">
-              <Badge 
-                variant={showHistory ? "default" : "outline"} 
-                className="cursor-pointer" 
-                onClick={() => setShowHistory(!showHistory)}
-              >
-                <Calendar className="h-4 w-4 mr-1" />
-                {showHistory ? "Showing All History" : "Showing Current Only"}
-              </Badge>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {/* <div className="bg-white rounded-lg shadow p-4 flex flex-wrap gap-4 justify-center sm:justify-start">
-              <Button
-                variant={selectedGoalType === "all" ? "default" : "outline"}
-                onClick={() => setSelectedGoalType("all")}
-                className="flex items-center gap-2"
-              >
-                <BarChart3 size={16} />
-                All Goals
-              </Button>
-              <Button
-                variant={selectedGoalType === "Daily" ? "default" : "outline"}
-                onClick={() => setSelectedGoalType("Daily")}
-                className="flex items-center gap-2"
-              >
-                <Clock size={16} />
-                Daily
-              </Button>
-              <Button
-                variant={selectedGoalType === "Weekly" ? "default" : "outline"}
-                onClick={() => setSelectedGoalType("Weekly")}
-                className="flex items-center gap-2"
-              >
-                <Calendar size={16} />
-                Weekly
-              </Button>
-              <Button
-                variant={selectedGoalType === "Monthly" ? "default" : "outline"}
-                onClick={() => setSelectedGoalType("Monthly")}
-                className="flex items-center gap-2"
-              >
-                <BarChart3 size={16} />
-                Monthly
-              </Button>
-              <Button
-                variant={selectedGoalType === "Yearly" ? "default" : "outline"}
-                onClick={() => setSelectedGoalType("Yearly")}
-                className="flex items-center gap-2"
-              >
-                <CheckCircle2 size={16} />
-                Yearly
-              </Button>
-            </div> */}
-
-            <div className="bg-white rounded-lg shadow p-4 flex flex-wrap gap-4 justify-center sm:justify-start">
-              <Button
-                variant={selectedStatus === "all" ? "default" : "outline"}
-                onClick={() => setSelectedStatus("all")}
-                className="flex items-center gap-2"
-              >
-                <BarChart3 size={16} />
-                All Statuses
-              </Button>
-              <Button
-                variant={selectedStatus === "in-progress" ? "default" : "outline"}
-                onClick={() => setSelectedStatus("in-progress")}
-                className="flex items-center gap-2"
-              >
-                <BarChart3 size={16} />
-                In Progress
-              </Button>
-              <Button
-                variant={selectedStatus === "completed" ? "default" : "outline"}
-                onClick={() => setSelectedStatus("completed")}
-                className="flex items-center gap-2"
-              >
-                <CheckCircle2 size={16} />
-                Completed
-              </Button>
-              <Button
-                variant={selectedStatus === "overdue" ? "default" : "outline"}
-                onClick={() => setSelectedStatus("overdue")}
-                className="flex items-center gap-2"
-              >
-                <AlertTriangle size={16} />
-                Overdue
-              </Button>
-              <Button
-                variant={selectedStatus === "pending" ? "default" : "outline"}
-                onClick={() => setSelectedStatus("pending")}
-                className="flex items-center gap-2"
-              >
-                <Clock size={16} />
-                Pending
-              </Button>
-            </div>
-
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredGoals.map(({ goal, instance }) => (
-                <EmployeeGoalCard
-                  key={`${goal.id}-${instance.id}`}
-                  goal={goal}
-                  goalInstance={instance}
-                  employee={employee}
-                  onInstanceUpdate={handleInstanceUpdate}
-                />
-              ))}
+              <AnimatePresence>
+                {goals.map((goal, index) => (
+                  <motion.div
+                    key={goal.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -20 }}
+                    transition={{ duration: 0.6, delay: index * 0.05 }}
+                    className="group"
+                  >
+                    <EmployeeGoalCard
+                      goal={goal}
+                      employee={employee}
+                      onUpdate={refetch}
+                      className="h-full bg-white/80 backdrop-blur-sm rounded-xl shadow-sm hover:shadow-xl transition-all duration-500 group-hover:bg-gradient-to-br group-hover:from-blue-50 group-hover:to-indigo-50 border border-gray-100/50" 
+                    />
+                  </motion.div>
+                ))}
+              </AnimatePresence>
             </div>
-            {filteredGoals.length === 0 && (
+            {goals.length === 0 && (
               <div className="text-center py-10">
-                <p className="text-gray-500">No goals found with the selected filters</p>
+                <p className="text-gray-500">No goals found.</p>
               </div>
             )}
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </motion.div>
     </div>
   );
 };
 
 export default EmployeeGoalDashboard;
-
-// 

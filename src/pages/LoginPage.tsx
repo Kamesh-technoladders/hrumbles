@@ -1,14 +1,15 @@
-import { useState, FC, ChangeEvent, KeyboardEvent, MouseEvent } from 'react';
+import { useState, FC, ChangeEvent, KeyboardEvent, MouseEvent, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDispatch } from 'react-redux';
 import { ThunkDispatch } from '@reduxjs/toolkit';
 import { AnyAction } from 'redux';
-
+import { toast } from "sonner";
 import { signIn } from "../utils/api"; // Assuming types are defined in this file
 import { fetchUserSession } from "../Redux/authSlice"; // Assuming this is a standard Redux Thunk
 import supabase from "../config/supabaseClient";
 import { getOrganizationSubdomain } from "../utils/subdomain"; 
 import { Eye, EyeOff } from 'lucide-react';
+import { calculateProfileCompletion } from "../utils/profileCompletion";
 
 // --- Constants ---
 const ITECH_ORGANIZATION_ID = [
@@ -30,6 +31,8 @@ interface UserDetails {
   departmentName: string | null;
   organizationId: string | null;
   status: string | null;
+  first_name?: string;  // ✅ CHANGE #2: ADD THIS LINE
+  last_name?: string;   // ✅ CHANGE #2: ADD THIS LINE
 }
 
 /*
@@ -69,7 +72,7 @@ const WarningTwoIcon: FC = () => (
 
 const CaretLeftIcon: FC = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="currentColor" viewBox="0 0 256 256">
-        <path d="M165.66,202.34a8,8,0,0,1-11.32,0L88.68,136.68a8,8,0,0,1,0-11.32l65.66-65.66a8,8,0,0,1,11.32,11.32L105.32,128l60.34,63.02A8,8,0,0,1,165.66,202.34Z"></path>
+        <path d="M165.66,202.34a8,8,0 0,1-11.32,0L88.68,136.68a8,8,0 0,1,0-11.32l65.66-65.66a8,8,0 0,1,11.32,11.32L105.32,128l60.34,63.02A8,8,0 0,1,165.66,202.34Z"></path>
     </svg>
 );
 
@@ -103,6 +106,53 @@ const LoginPage: FC = () => {
   const [showPassword, setShowPassword] = useState<boolean>(false);
     const [employeeData, setEmployeeData] = useState<{ first_name: string; last_name: string } | null>(null);
 
+
+ const logUserActivity = async (
+    userId: string,
+    organizationId: string,
+    eventType: 'login' | 'logout' | 'failed_login',
+    details?: {
+      ip_address?: string;
+      ipv6_address?: string;
+      city?: string;
+      country?: string;
+      latitude?: string;
+      longitude?: string;
+      device_info?: string; // Add this if you want to capture it
+      errorMessage?: string; // For failed logins
+    }
+  ) => {
+    try {
+         // Ensure we have essential data before attempting to log
+      if (!userId || !organizationId) { // Added check for organizationId too
+        console.warn("Skipping activity log: Missing userId or organizationId.");
+        return; // Stop logging if essential data is missing
+      }
+      const { error } = await supabase
+        .from('user_activity_logs')
+        .insert({
+          user_id: userId,
+          organization_id: organizationId,
+          event_type: eventType,
+          ip_address: details?.ip_address,
+          ipv6_address: details?.ipv6_address,
+          city: details?.city,
+          country: details?.country,
+          latitude: details?.latitude,
+          longitude: details?.longitude,
+          device_info: details?.device_info || navigator.userAgent, // Capture user agent
+          details: details?.errorMessage ? { errorMessage: details.errorMessage } : null, // Store error message for failed logins
+        });
+
+      if (error) {
+        console.error("Error logging user activity:", error.message);
+      }
+    } catch (err) {
+      console.error("Unexpected error logging user activity:", err);
+    }
+  };
+
+
     const fetchUserDetails = async (userId: string): Promise<UserDetails> => {
     try {
       const { data: employeeData, error: employeeError } = await supabase
@@ -110,6 +160,8 @@ const LoginPage: FC = () => {
         .select("role_id, department_id, organization_id, status, first_name, last_name")
         .eq("id", userId)
         .single();
+
+           console.log("[DEBUG] Supabase query result for user ID:", userId, { employeeData, employeeError });
 
       if (employeeError || !employeeData) {
         throw new Error("Employee profile not found for this user.");
@@ -146,7 +198,7 @@ const LoginPage: FC = () => {
 
     } catch (error: any) {
       console.error("Error in fetchUserDetails:", error.message);
-      return { role: null, departmentName: null, organizationId: null, status: null };
+       return { role: null, departmentName: null, organizationId: null, status: null };
     }
   };
 
@@ -176,6 +228,8 @@ const LoginPage: FC = () => {
     }
   };
   
+
+
 
    const getDeviceLocation = (): Promise<{ latitude: number; longitude: number }> => {
     return new Promise((resolve, reject) => {
@@ -224,7 +278,7 @@ const LoginPage: FC = () => {
       }
       const data = await response.json();
       return data.ip;
-    } catch (error) {
+    } catch (error: any) {
       console.warn("Could not fetch IPv6 address:", error.message);
       // If the fetch fails, it means the user doesn't have a public IPv6 connection.
       return 'Not available';
@@ -240,7 +294,7 @@ const LoginPage: FC = () => {
       if (!response.ok) throw new Error('No IPv4 connection.');
       const data = await response.json();
       return data.ip;
-    } catch (error) {
+    } catch (error: any) {
       console.warn("Could not fetch IPv4 address:", error.message);
       return 'Not available';
     }
@@ -283,18 +337,15 @@ const LoginPage: FC = () => {
   };
 
     // This function runs in the background and does not block the UI
-  const sendLoginNotificationInBackground = async (
-    userDetails: { userEmail: string; organizationId: string | null; firstName: string; lastName: string; }
+ const sendLoginNotificationInBackground = async (
+    // The function now accepts 'userId'
+    userDetails: { userEmail: string; organizationId: string | null; userId: string; firstName: string; lastName: string; } 
   ) => {
     try {
-      // 1. Fetch IP addresses
+      // ... (IP and location fetching logic remains the same) ...
       const ipv4 = await getIPv4Address();
-      const ipv6 = await getIPv6Address();
-
-      // 2. Fetch approximate location based on the reliable IPv4
+      const ipv6 = await getIPv6Address(); 
       const approxLocation = await getApproximateLocation(ipv4);
-
-      // 3. Try to get precise location, but don't fail if the user denies it
       let deviceLocation = { latitude: "Not available", longitude: "Not available" };
       try {
         const coords = await getDeviceLocation();
@@ -303,83 +354,133 @@ const LoginPage: FC = () => {
         console.warn("Could not get precise device location (this is common).");
       }
       
-      // 4. Construct the payload
-      const payload = {
+      const notificationPayload  = { // Renamed from 'payload' to 'notificationPayload'
         userEmail: userDetails.userEmail,
         organizationId: userDetails.organizationId,
         firstName: userDetails.firstName,
         lastName: userDetails.lastName,
-        ipAddress: ipv4, // This is now guaranteed to be IPv4
+        ipAddress: ipv4,
         ipv6Address: ipv6,
         location: `${approxLocation.city}, ${approxLocation.country}`,
         latitude: deviceLocation.latitude,
         longitude: deviceLocation.longitude,
       };
 
+       // NEW: This block was added to log the successful login.
+      if (userDetails.userId && userDetails.organizationId) {
+        await logUserActivity(
+          userDetails.userId,
+          userDetails.organizationId,
+          'login',
+          {
+            ip_address: ipv4,
+            ipv6_address: ipv6,
+            city: approxLocation.city,
+            country: approxLocation.country,
+            latitude: deviceLocation.latitude,
+            longitude: deviceLocation.longitude,
+            device_info: navigator.userAgent,
+          }
+        );
+      }
+
       // 5. Send the request to your backend function
       await fetch('https://kbpeyfietrwlhwcwqhjw.supabase.co/functions/v1/send-login-notification', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        // BUG: This line uses 'payload', which is not defined. It should be 'notificationPayload'.
+        body: JSON.stringify(notificationPayload),
       });
 
       console.log("Background login notification sent successfully.");
 
     } catch (error) {
-      // This catch ensures that ANY failure in this process is silent
-      // and only logs to the console, never showing an error to the user.
       console.error("Failed to send login notification in the background:", error);
     }
   };
+
+// PASTE THIS ENTIRE FUNCTION INTO YOUR LoginPage.tsx FILE
 
 const handleLogin = async (): Promise<void> => {
     setError(null);
     setIsLoading(true);
     console.log("--- LOGIN PROCESS STARTED ---");
 
+    let userId: string | null = null;
+    let userOrgId: string | null = null;
+
     try {
-      // --- CRITICAL PATH START ---
-      const subdomainOrgId = await getOrganizationIdBySubdomain(organizationSubdomain);
-      if (!subdomainOrgId) throw new Error("Invalid organization domain.");
+        const subdomainOrgId = await getOrganizationIdBySubdomain(organizationSubdomain);
+        if (!subdomainOrgId) throw new Error("Invalid organization domain.");
+        userOrgId = subdomainOrgId;
 
-      const { user } = await signIn(email, password);
-      console.log("✅ User authenticated successfully");
+        const { user } = await signIn(email, password);
+        console.log("✅ User authenticated successfully");
+        userId = user.id;
 
-      const { role, departmentName, organizationId: userOrgId, status, first_name, last_name } = await fetchUserDetails(user.id);
-      
-      if (status !== 'active') throw new Error("Your account is not active.");
-      if (userOrgId !== subdomainOrgId) throw new Error("Access Denied. Please log in from your organization's domain.");
-      // --- CRITICAL PATH END ---
+        const {
+            role,
+            departmentName,
+            organizationId: fetchedOrgIdFromUserDetails,
+            status,
+            first_name,
+            last_name
+        } = await fetchUserDetails(user.id);
 
-      // --- NON-CRITICAL: FIRE AND FORGET ---
-      // Call the background function WITHOUT 'await'.
-      // This lets the rest of the code run immediately.
-      sendLoginNotificationInBackground({
-        userEmail: email,
-        organizationId: userOrgId,
-        firstName: first_name,
-        lastName: last_name,
-      });
+        userOrgId = fetchedOrgIdFromUserDetails;
+        if (!userOrgId) {
+            throw new Error("User's organization ID could not be determined.");
+        }
+        
+        if (status !== 'active') {
+            if (userId && userOrgId) {
+                await logUserActivity(userId, userOrgId, 'failed_login', { errorMessage: "Account not active" });
+            }
+            throw new Error("Your account is not active.");
+        }
+        if (userOrgId !== subdomainOrgId) {
+            if (userId && userOrgId) {
+                await logUserActivity(userId, userOrgId, 'failed_login', { errorMessage: "Organization domain mismatch" });
+            }
+            throw new Error("Access Denied. Please log in from your organization's domain.");
+        }
 
-      // Continue with login and navigation immediately
-      await dispatch(fetchUserSession()).unwrap();
-      
-      let navigateTo = "/dashboard";
-      if (role === "employee" && departmentName === "Finance") {
-        navigateTo = "/finance";
-      }
-      
-      console.log("--- LOGIN PROCESS COMPLETED ---");
-      navigate(navigateTo);
+        // Run this in the background to not slow down the login
+        sendLoginNotificationInBackground({
+            userEmail: email,
+            organizationId: userOrgId,
+            userId: userId,
+            firstName: first_name || "",
+            lastName: last_name || "",
+        });
 
+        await dispatch(fetchUserSession()).unwrap();
+
+       
+
+        // --- NAVIGATION LOGIC ---
+        let navigateTo = "/dashboard"; 
+        if (role === "employee" && departmentName === "Finance") {
+            navigateTo = "/finance";
+        }
+
+        console.log("--- LOGIN PROCESS COMPLETED ---");
+        navigate(navigateTo);
+
+    
     } catch (error: any) {
-      // This catch will now ONLY handle critical login errors (e.g., wrong password)
-      console.error("🔴 LOGIN FAILED:", error.message);
-      setError(error.message);
+        console.error("🔴 LOGIN FAILED:", error.message);
+        setError(error.message);
+        
+        if (userId && userOrgId) {
+            await logUserActivity(userId, userOrgId, 'failed_login', { errorMessage: error.message });
+        }
     } finally {
-      setIsLoading(false);
+        setIsLoading(false);
     }
-  };
+};
+
+// ... your handleKeyDown function and return statement will be below this
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
     if (e.key === "Enter") {

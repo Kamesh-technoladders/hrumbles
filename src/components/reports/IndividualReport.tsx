@@ -13,7 +13,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { DateRangePickerField } from './DateRangePickerField';
+import { EnhancedDateRangeSelector } from '@/components/ui/EnhancedDateRangeSelector';
 import { CSVLink } from 'react-csv';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -137,15 +137,19 @@ const STAGE_COLORS = {
 // Define failure color for performance chart
 const FAILURE_COLOR = '#F87171'; // Muted red for failure rate
 
+interface DateRange {
+  startDate: Date | null;
+  endDate: Date | null;
+}
+
 const IndividualReport: React.FC = () => {
   const [selectedEmployees, setSelectedEmployees] = useState<string[]>([]);
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>(statusOrder);
   const { isLoading, error, fetchIndividualReport } = useStatusReport();
   const [reportData, setReportData] = useState<any[]>([]);
-  const [dateRange, setDateRange] = useState({
+  const [dateRange, setDateRange] = useState<DateRange>({
     startDate: new Date(new Date().getFullYear(), 0, 1),
     endDate: new Date(),
-    key: 'selection',
   });
 
   const debouncedFetch = debounce(async (from: Date, to: Date) => {
@@ -167,9 +171,13 @@ const IndividualReport: React.FC = () => {
   }, 500);
 
   useEffect(() => {
+    if (!dateRange?.startDate || !dateRange?.endDate) {
+      setReportData([]);
+      return;
+    }
     debouncedFetch(dateRange.startDate, dateRange.endDate);
     return () => debouncedFetch.cancel();
-  }, [dateRange.startDate, dateRange.endDate]);
+  }, [dateRange?.startDate, dateRange?.endDate]);
 
   const handleStatusChange = (status: string) => {
     setSelectedStatuses(prev =>
@@ -355,9 +363,18 @@ const IndividualReport: React.FC = () => {
   }
   if (!reportData.length) {
     return (
+      <>
+       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <h2 className="text-2xl font-bold">Individual Report</h2>
+        <EnhancedDateRangeSelector
+          value={dateRange}
+          onChange={setDateRange}
+        />
+      </div>
       <Alert>
         <AlertDescription>No data available for the selected date range.</AlertDescription>
       </Alert>
+      </>
     );
   }
 
@@ -396,13 +413,13 @@ const IndividualReport: React.FC = () => {
     <div className="w-full max-w-[95vw] mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h2 className="text-2xl font-bold">Individual Report</h2>
-        <DateRangePickerField
-          dateRange={dateRange}
-          onDateRangeChange={(range: any) => setDateRange(range)}
+        <EnhancedDateRangeSelector
+          value={dateRange}
+          onChange={setDateRange}
         />
       </div>
 
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      {/* <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4 w-full sm:w-auto">
           <div className="w-full sm:w-48">
             <Label className="block text-sm font-medium text-gray-700">Filter Employees</Label>
@@ -499,14 +516,14 @@ const IndividualReport: React.FC = () => {
             </Popover>
           </div>
         </div>
-      </div>
+      </div> */}
 
-      <div className="w-full overflow-x-auto">
+      {/* <div className="w-full overflow-x-auto">
         <Tabs defaultValue="overview" className="w-full min-w-[320px]">
           <TabsList className="flex flex-wrap gap-2">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="comparison">Comparison</TabsTrigger>
-            {/* <TabsTrigger value="flow">Flow</TabsTrigger> */}
+            <TabsTrigger value="flow">Flow</TabsTrigger>
             <TabsTrigger value="performance">Performance</TabsTrigger>
           </TabsList>
 
@@ -607,7 +624,7 @@ const IndividualReport: React.FC = () => {
             </Card>
           </TabsContent>
 
-          {/* <TabsContent value="flow">
+          <TabsContent value="flow">
             <Card>
               <CardHeader>
                 <CardTitle>Candidate Flow by Stage</CardTitle>
@@ -638,7 +655,7 @@ const IndividualReport: React.FC = () => {
                 </div>
               </CardContent>
             </Card>
-          </TabsContent> */}
+          </TabsContent>
 
           <TabsContent value="performance">
             <Card>
@@ -707,10 +724,10 @@ const IndividualReport: React.FC = () => {
             </Card>
           </TabsContent>
         </Tabs>
-      </div>
+      </div> */}
 
       <Card>
-        <CardHeader>
+        <CardHeader className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <CardTitle>Detailed Report</CardTitle>
             <div className="flex space-x-2">

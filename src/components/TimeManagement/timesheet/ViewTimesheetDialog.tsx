@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { TimeLog, DetailedTimesheetEntry } from "@/types/time-tracker-types";
+import { TimeLog, DetailedTimesheetEntry, JobLog } from "@/types/time-tracker-types";
 import { toast } from "sonner";
 import { TimeLogDetails } from "./dialog/TimeLogDetails";
 import { TimesheetBasicInfo } from "./dialog/TimesheetBasicInfo";
@@ -18,6 +18,9 @@ import Papa from 'papaparse';
 import { fetchEmployees } from '@/api/user';
 import { MultiSelect } from '@/components/ui/multi-selector';
 import { DateTime } from 'luxon';
+import { RecruiterTimesheetForm } from "./dialog/RecruiterTimesheetForm";
+import { Share2 } from 'lucide-react';
+
 
 interface ViewTimesheetDialogProps {
   open: boolean;
@@ -25,6 +28,7 @@ interface ViewTimesheetDialogProps {
   timesheet: TimeLog;
   onSubmitTimesheet: () => void;
   employeeHasProjects: boolean;
+  finalDurationMinutes?: number;
 }
 
 interface Submission {
@@ -61,8 +65,8 @@ interface Submission {
 }
 
 interface EmployeeOption {
-  value: string; // employee id
-  label: string; // employee name
+  value: string;
+  label: string;
 }
 
 export const ViewTimesheetDialog: React.FC<ViewTimesheetDialogProps> = ({
@@ -71,60 +75,107 @@ export const ViewTimesheetDialog: React.FC<ViewTimesheetDialogProps> = ({
   timesheet,
   onSubmitTimesheet,
   employeeHasProjects,
+  finalDurationMinutes,
 }) => {
   const user = useSelector((state: any) => state.auth.user);
   const organization_id = useSelector((state: any) => state.auth.organization_id);
   const employeeId = user?.id || "";
-  const [date, setDate] = useState<Date>(new Date(timesheet?.date || Date.now()));
-  
+
+ 
+ 
   // Core State
   const [isEditing, setIsEditing] = useState(!timesheet?.is_submitted);
   const [isLoading, setIsLoading] = useState(false);
   const [isFormValid, setIsFormValid] = useState(true);
 
-  // Project-based employee state
-  const [title, setTitle] = useState(timesheet?.title || '');
-  const [workReport, setWorkReport] = useState(timesheet?.notes || '');
-  const [totalWorkingHours, setTotalWorkingHours] = useState(timesheet?.total_working_hours || 8);
-  const [detailedEntries, setDetailedEntries] = useState<DetailedTimesheetEntry[]>(timesheet?.project_time_data?.projects || []);
-  const [projectEntries, setProjectEntries] = useState<any[]>(timesheet?.project_time_data?.projects || []);
-  const [hrProjectEmployees, setHrProjectEmployees] = useState<any[]>([]);
+  const [temporaryClockOutTime, setTemporaryClockOutTime] = useState<string | null>(null);
 
-  // Non-project employee state
-  const [formData, setFormData] = useState({ workReport: timesheet?.notes || '' });
+  const [temporaryDurationMinutes, setTemporaryDurationMinutes] = useState<number | null>(null);
+
+  // --- State for different user roles ---
+  // 1. Recruiter State
+  const [isRecruiter, setIsRecruiter] = useState(false);
+  const [recruiterJobLogs, setRecruiterJobLogs] = useState<JobLog[] | null>(null);
+  const [overallWorkReport, setOverallWorkReport] = useState('');
+  const [submissions, setSubmissions] = useState<Submission[]>([]);
+
+  // 2. Project-based Employee State
+  const [title, setTitle] = useState('');
+  const [workReport, setWorkReport] = useState('');
+  const [totalWorkingHours, setTotalWorkingHours] = useState(8);
+  const [detailedEntries, setDetailedEntries] = useState<DetailedTimesheetEntry[]>([]);
+  const [projectEntries, setProjectEntries] = useState<any[]>([]);
+  const [hrProjectEmployees, setHrProjectEmployees] = useState<any[]>([]);
+ 
+  // 3. Standard Employee State
+  const [formData, setFormData] = useState({ workReport: '' });
 
   // EOD Report State
-  const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [emailStatus, setEmailStatus] = useState<string | null>(null);
-  const [isRecruiter, setIsRecruiter] = useState(false);
   const [allEmployees, setAllEmployees] = useState<EmployeeOption[]>([]);
   const [additionalRecipients, setAdditionalRecipients] = useState<string[]>([]);
-
+ 
   const { validateForm } = useTimesheetValidation();
 
-  // Combined data fetching and setup effect
+  // Initialize form state when the dialog opens or timesheet changes
+  useEffect(() => {
+      if (timesheet) {
+        setTitle(timesheet.title || '');
+        setWorkReport(timesheet.notes || '');
+        setTotalWorkingHours(timesheet?.total_working_hours || 8);
+        setDetailedEntries(timesheet?.project_time_data?.projects || []);
+        setProjectEntries(timesheet?.project_time_data?.projects || []);
+        setFormData({ workReport: timesheet.notes || '' });
+        setOverallWorkReport(timesheet.notes || '');
+        setIsEditing(!timesheet.is_submitted);
+
+if (!timesheet.is_submitted) {
+        const nowISO = new Date().toISOString();
+        setTemporaryClockOutTime(nowISO);
+
+        // NEW: Calculate and set the temporary duration
+        if (timesheet.clock_in_time) {
+          const clockInTime = DateTime.fromISO(timesheet.clock_in_time);
+          const tempClockOutTime = DateTime.fromISO(nowISO);
+          
+          // Calculate the gross difference in minutes
+          const diffInMinutes = tempClockOutTime.diff(clockInTime, 'minutes').toObject().minutes || 0;
+          
+          // Subtract any breaks that have already been logged
+          const totalBreakMinutes = timesheet.break_logs?.reduce(
+            (sum, b) => sum + (b.duration_minutes || 0), 0
+          ) || 0;
+            
+          const netDuration = Math.floor(diffInMinutes) - totalBreakMinutes;
+
+          setTemporaryDurationMinutes(netDuration > 0 ? netDuration : 0);
+        }
+      }
+    }
+}, [timesheet, open]);
+
+  // Combined data fetching and role detection effect
   useEffect(() => {
     if (open && organization_id && employeeId) {
       const setupDialog = async () => {
         setIsLoading(true);
         try {
-          // Fetch data for project-based employees
-          if (employeeHasProjects) {
-            const data = await fetchHrProjectEmployees(employeeId);
-            setHrProjectEmployees(data);
-          }
-
-          // Fetch all employees for recipient dropdown
           const employees = await fetchEmployees(organization_id);
           setAllEmployees(employees.map(e => ({ value: e.email, label: `${e.first_name} ${e.last_name}` })));
-          
-          // Determine if user is a recruiter to show candidate submissions
+         
           const { data: employeeData } = await supabase.from("hr_employees").select("department_id").eq("id", employeeId).single();
           if (employeeData?.department_id) {
             const { data: deptData } = await supabase.from("hr_departments").select("name").eq("id", employeeData.department_id).single();
-            const recruiterStatus = deptData?.name === "Human Resource";
-            setIsRecruiter(recruiterStatus);
-            if (recruiterStatus) await fetchSubmissions();
+            const isRecruiterRole = deptData?.name === "Human Resource";
+            setIsRecruiter(isRecruiterRole);
+            if (isRecruiterRole) {
+              await fetchSubmissions();
+            }
+            // Fetch project assignments only if the user is NOT a recruiter but has projects
+            if (!isRecruiterRole && employeeHasProjects) {
+              const data = await fetchHrProjectEmployees(employeeId);
+              setHrProjectEmployees(data);
+            }
           }
         } catch (error) {
           console.error("Error setting up dialog:", error);
@@ -135,20 +186,7 @@ export const ViewTimesheetDialog: React.FC<ViewTimesheetDialogProps> = ({
       };
       setupDialog();
     }
-  }, [open, organization_id, employeeId, employeeHasProjects]);
-
-  useEffect(() => {
-    if (timesheet?.clock_in_time && timesheet?.clock_out_time) {
-      const clockIn = new Date(timesheet.clock_in_time);
-      const clockOut = new Date(timesheet.clock_out_time);
-      const diffMs = clockOut.getTime() - clockIn.getTime();
-      const totalHours = Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100;
-      setTotalWorkingHours(totalHours);
-      setFormData((prev) => ({ ...prev, totalHours }));
-      console.log('Calculated login hours:', { totalHours, clockIn, clockOut });
-    }
-    setIsFormValid(validateForm({ title, workReport: formData.workReport, totalWorkingHours, employeeHasProjects, projectEntries, detailedEntries }));
-  }, [timesheet, employeeHasProjects, formData.workReport, title, totalWorkingHours, projectEntries, detailedEntries]);
+  }, [open, organization_id, employeeId, employeeHasProjects, timesheet?.date]);
 
   const fetchSubmissions = async () => {
     if (!employeeId || !timesheet) return;
@@ -289,7 +327,13 @@ export const ViewTimesheetDialog: React.FC<ViewTimesheetDialogProps> = ({
     });
   };
 
-  const sendEODReport = async (finalWorkReport: string) => {
+  const handleRecruiterDataChange = (data: { logs: JobLog[] | null; report: string }) => {
+    console.log('Recruiter data changed:', data);
+    setRecruiterJobLogs(data.logs);
+    setOverallWorkReport(data.report);
+  };
+
+  const sendEODReport = async (finalWorkReport: string, newClockOutTime: string) => {
     setEmailStatus('Sending EOD report...');
     try {
       const { data: { session }, error: authError } = await supabase.auth.getSession();
@@ -312,9 +356,9 @@ export const ViewTimesheetDialog: React.FC<ViewTimesheetDialogProps> = ({
         workReport: finalWorkReport,
         timesheetDetails: {
           date: timesheet.date,
-          duration_minutes: timesheet.duration_minutes,
+          duration_minutes: finalDurationMinutes,
           clock_in_time: timesheet.clock_in_time,
-          clock_out_time: timesheet.clock_out_time,
+          clock_out_time: newClockOutTime,
         },
         allRecipients: uniqueRecipients,
         csvContent: isRecruiter && submissions.length > 0 ? generateCSV(submissions) : null,
@@ -336,27 +380,116 @@ export const ViewTimesheetDialog: React.FC<ViewTimesheetDialogProps> = ({
       }
       
       setEmailStatus('EOD report sent successfully!');
-    } catch (err) {
+    } catch (err: any) {
+      setEmailStatus(`Failed to send EOD report: ${err.message}`);
+      toast.error(`EOD Send Failed: ${err.message}`);
+    }
+  };
+
+
+const generateRecruiterCSV = (jobLogs: JobLog[]) => {
+  const headers = [
+    'Job Title', 'Job ID', 'Client Name', 'Job Type', 'Job Category',
+    'Candidate Name', 'Submission Date', 'Main Status', 'Sub Status',
+    'Time Spent (Hours)', 'Time Spent (Minutes)', 'Total Time (Minutes)',
+    'Challenges/Notes'
+  ];
+
+  const csvData: any[] = [];
+
+  jobLogs.forEach(job => {
+    if (job.candidates && job.candidates.length > 0) {
+      job.candidates.forEach(candidate => {
+        csvData.push([
+          job.jobTitle || 'N/A',
+          job.job_display_id || 'N/A',
+          job.clientName || 'N/A',
+          job.job_type || 'N/A',
+          job.job_type_category || 'N/A',
+          candidate.name || 'N/A',
+          candidate.submissionDate ? format(new Date(candidate.submissionDate), 'dd/MM/yyyy') : 'N/A',
+          candidate.mainStatus || 'N/A',
+          candidate.subStatus || 'N/A',
+          candidate.hours || 0,
+          candidate.minutes || 0,
+          (candidate.hours * 60) + candidate.minutes,
+          job.challenges ? job.challenges.replace(/<[^>]+>/g, '') : ''
+        ]);
+      });
+    }
+  });
+
+  return Papa.unparse({ fields: headers, data: csvData }, { delimiter: ',', quotes: true });
+};
+
+
+  const sendRecruiterEODReport = async (newClockOutTime: string) => {
+    setEmailStatus('Sending EOD report...');
+    try {
+      const { data: { session }, error: authError } = await supabase.auth.getSession();
+      if (authError || !session) throw new Error('Authentication session not found.');
+      let defaultRecipientEmails: string[] = [];
+      const { data: config } = await supabase.from('hr_email_configurations').select('recipients').eq('organization_id', organization_id).eq('report_type', 'eod_report').single();
+      if (config?.recipients?.length > 0) {
+        const { data: recipientEmployees } = await supabase.from('hr_employees').select('email').in('id', config.recipients);
+        if (recipientEmployees) defaultRecipientEmails = recipientEmployees.map(e => e.email);
+      }
+      const allRecipientEmails = [user.email, ...additionalRecipients, ...defaultRecipientEmails];
+      const uniqueRecipients = [...new Set(allRecipientEmails.filter(Boolean))];
+     const csvContent = recruiterJobLogs && recruiterJobLogs.length > 0 
+  ? generateRecruiterCSV(recruiterJobLogs) 
+  : null;
+      
+      const payload = {
+        userName: `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email,
+        timesheetDetails: {
+          date: timesheet.date,
+          duration_minutes: finalDurationMinutes,
+          clock_in_time: timesheet.clock_in_time,
+          clock_out_time: newClockOutTime,
+        },
+        jobLogs: recruiterJobLogs,
+        overallSummary: overallWorkReport,
+        breakLogs: timesheet.break_logs || [],
+        allRecipients: uniqueRecipients,
+        csvContent,
+      };
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/recruiter-eod-report`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Request failed with status ${response.status}`);
+      }
+     
+      setEmailStatus('EOD report sent successfully!');
+    } catch (err: any) {
       setEmailStatus(`Failed to send EOD report: ${err.message}`);
       toast.error(`EOD Send Failed: ${err.message}`);
     }
   };
 
   const handleClose = () => {
-    setDate(new Date(timesheet?.date || Date.now()));
-    setTitle(timesheet?.title || '');
-    setTotalWorkingHours(timesheet?.total_working_hours || 8);
-    setWorkReport(timesheet?.notes || '');
-    setDetailedEntries(timesheet?.project_time_data?.projects || []);
-    setProjectEntries(timesheet?.project_time_data?.projects || []);
-    setFormData({
-      workReport: timesheet?.notes || '',
-      projectAllocations: timesheet?.project_time_data?.projects || [],
-      totalHours: timesheet?.total_working_hours || 0,
-    });
-    setIsEditing(!timesheet?.is_submitted);
+    setTitle('');
+    setWorkReport('');
+    setTotalWorkingHours(8);
+    setDetailedEntries([]);
+    setProjectEntries([]);
+    setFormData({ workReport: '' });
+    setRecruiterJobLogs(null);
+    setOverallWorkReport('');
+    setSubmissions([]);
+    setIsEditing(false);
     setIsFormValid(true);
     setEmailStatus(null);
+    setTemporaryClockOutTime(null); 
+    setTemporaryDurationMinutes(null);
     onOpenChange(false);
   };
 
@@ -366,125 +499,137 @@ export const ViewTimesheetDialog: React.FC<ViewTimesheetDialogProps> = ({
       return;
     }
 
-    let isSubmissionSuccessful = false;
-    let finalWorkReport = '';
+    // Perform validation right before submitting
+    if (isRecruiter) {
+        if (!isFormValid) {
+            toast.error("Please fill all required fields before submitting.");
+            return;
+        }
+    } else if (employeeHasProjects) {
+        const calculatedTotalHours = projectEntries.reduce((sum, p) => sum + (p.hours || 0), 0);
+        const isValid = validateForm({
+            title, workReport,
+            totalWorkingHours: calculatedTotalHours,
+            employeeHasProjects,
+            projectEntries,
+            detailedEntries: projectEntries
+        });
+        if (!isValid) {
+            return;
+        }
+    } else {
+        const isValid = formData.workReport.replace(/<[^>]+>/g, "").trim().length > 0;
+        if (!isValid) {
+            toast.error('Work Summary is required');
+            return;
+        }
+    }
+
+    const newClockOutTime = new Date().toISOString();
     setIsLoading(true);
-
     try {
-      // Format clockIn and clockOut to HH:mm format
-      const clockIn = timesheet.clock_in_time
-        ? DateTime.fromISO(timesheet.clock_in_time, { zone: 'utc' }).setZone('Asia/Kolkata').toFormat('HH:mm')
-        : undefined;
-      const clockOut = timesheet.clock_out_time
-        ? DateTime.fromISO(timesheet.clock_out_time, { zone: 'utc' }).setZone('Asia/Kolkata').toFormat('HH:mm')
-        : undefined;
-
-      if (employeeHasProjects) {
-        // --- Project-based submission logic ---
-        if (!validateForm({ title, workReport, totalWorkingHours, employeeHasProjects, projectEntries, detailedEntries })) {
-          toast.error("Validation failed. Please fill all required project fields.");
-          setIsLoading(false);
-          return;
-        }
-        finalWorkReport = workReport;
-
-        const timesheetData = {
+      const clockIn = timesheet.clock_in_time ? DateTime.fromISO(timesheet.clock_in_time, { zone: 'utc' }).setZone('Asia/Kolkata').toFormat('HH:mm') : undefined;
+      
+      let timesheetData: any = {
           employeeId: timesheet.employee_id,
-          title,
-          workReport,
-          totalWorkingHours,
-          projectEntries,
-          detailedEntries,
           date: new Date(timesheet.date),
           clockIn,
-          clockOut,
-        };
+      };
+      let isSubmissionSuccessful = false;
+      let finalWorkReport = '';
 
-        console.log('Debug: Submitting timesheet for project-based employee', {
-          timeLogId: timesheet.id,
-          timesheetData,
-          organization_id,
-          date: timesheet.date,
-          clockIn,
-          clockOut,
-        });
-
-        isSubmissionSuccessful = await submitTimesheet(timesheet.id, timesheetData, organization_id);
+      if (isRecruiter) {
+          timesheetData.notes = overallWorkReport;
+          timesheetData.recruiter_report_data = recruiterJobLogs; // Save the job logs with candidates
+          console.log('Submitting recruiter data:', recruiterJobLogs);
+          
+          isSubmissionSuccessful = await submitTimesheet(
+              timesheet.id,
+              timesheetData,
+              organization_id,
+              finalDurationMinutes
+          );
+          if (isSubmissionSuccessful) {
+             await sendRecruiterEODReport(newClockOutTime);
+          }
       } else {
-        // --- Non-project-based submission logic ---
-        if (!validateForm({ title: '', workReport: formData.workReport, totalWorkingHours: timesheet.total_working_hours || 8, employeeHasProjects, projectEntries: [], detailedEntries: [] })) {
-          toast.error('Work Summary is required');
-          setIsLoading(false);
-          return;
-        }
-        finalWorkReport = formData.workReport;
-
-        const timesheetData = {
-          employeeId: timesheet.employee_id,
-          title: '',
-          workReport: formData.workReport,
-          totalWorkingHours: timesheet.total_working_hours || 8,
-          projectEntries: [],
-          detailedEntries: [],
-          date: new Date(timesheet.date),
-          clockIn,
-          clockOut,
-        };
-
-        console.log('Debug: Submitting timesheet for non-project-based employee', {
-          timeLogId: timesheet.id,
-          timesheetData,
-          organization_id,
-          date: timesheet.date,
-          clockIn,
-          clockOut,
-        });
-
-        isSubmissionSuccessful = await submitTimesheet(timesheet.id, timesheetData, organization_id);
+          if (employeeHasProjects) {
+              timesheetData.title = title;
+              timesheetData.notes = title || workReport;
+              timesheetData.workReport = workReport;
+              timesheetData.totalWorkingHours = totalWorkingHours;
+              timesheetData.projectEntries = projectEntries;
+              timesheetData.detailedEntries = detailedEntries;
+              finalWorkReport = workReport;
+          } else {
+              timesheetData.notes = formData.workReport;
+              timesheetData.workReport = formData.workReport;
+              timesheetData.totalWorkingHours = timesheet.duration_minutes ? timesheet.duration_minutes / 60 : 8;
+              finalWorkReport = formData.workReport;
+          }
+          
+          isSubmissionSuccessful = await submitTimesheet(
+              timesheet.id,
+              timesheetData,
+              organization_id,
+              finalDurationMinutes
+          );
+          if (isSubmissionSuccessful) {
+              await sendEODReport(finalWorkReport, newClockOutTime);
+          }
       }
-
+      
       if (isSubmissionSuccessful) {
-        await sendEODReport(finalWorkReport);
-        
-        if (emailStatus && emailStatus.startsWith('Failed')) {
-          // Error is already displayed
-        } else {
-          toast.success("Timesheet and EOD report submitted successfully");
-          onSubmitTimesheet();
-          onOpenChange(false);
-        }
+          if (emailStatus && emailStatus.startsWith('Failed')) {
+              // Error already shown
+          } else {
+              toast.success("Timesheet submitted successfully");
+              onSubmitTimesheet();
+              handleClose();
+          }
       } else {
-        toast.error('Failed to submit timesheet');
+          toast.error('Failed to submit timesheet');
       }
-    } catch (error) {
-      console.error("Error during submission:", error);
-      toast.error(`Submission Failed: ${error.message}`);
+    } catch (error: any) {
+        console.error("Error during submission:", error);
+        toast.error(`Submission Failed: ${error.message || 'An unknown error occurred'}`);
     } finally {
-      setIsLoading(false);
+        setIsLoading(false);
     }
   };
-
+ 
+  
   const canSubmit = !timesheet?.is_submitted && !isLoading && isFormValid;
-  const canEdit = !timesheet?.is_submitted && !timesheet?.is_approved;
-
+  
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-5xl max-h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>{timesheet?.is_submitted ? "View Timesheet" : "Submit Timesheet"}</DialogTitle>
         </DialogHeader>
-        
+       
         <div className="flex-1 overflow-y-auto space-y-4 p-4">
           {isLoading && isEditing ? <div>Loading...</div> : (
             <>
-              <TimesheetBasicInfo timesheet={timesheet} />
-              
+              <TimesheetBasicInfo timesheet={timesheet} 
+               temporaryClockOutTime={temporaryClockOutTime} 
+               temporaryDurationMinutes={temporaryDurationMinutes} 
+              />
+
+             
               {isEditing ? (
                 <>
-                  {employeeHasProjects ? (
+                  {isRecruiter ? (
+                    <RecruiterTimesheetForm
+                      timesheet={timesheet}
+                      onDataChange={handleRecruiterDataChange}
+                      onValidationChange={setIsFormValid}
+                    />
+                  ) : employeeHasProjects ? (
                     <TimesheetDialogContent
-                      date={date}
-                      setDate={setDate}
+                      date={new Date(timesheet.date)}
+                      mode="submit"
+                      setDate={() => {}}
                       title={title}
                       setTitle={setTitle}
                       totalWorkingHours={totalWorkingHours}
@@ -497,7 +642,7 @@ export const ViewTimesheetDialog: React.FC<ViewTimesheetDialogProps> = ({
                       setProjectEntries={setProjectEntries}
                       employeeHasProjects={employeeHasProjects}
                       isSubmitting={isLoading}
-                      handleClose={() => onOpenChange(false)}
+                      handleClose={handleClose}
                       handleSubmit={handleSubmit}
                       employeeId={employeeId}
                       hrProjectEmployees={hrProjectEmployees}
@@ -507,11 +652,26 @@ export const ViewTimesheetDialog: React.FC<ViewTimesheetDialogProps> = ({
                       formData={formData}
                       setFormData={setFormData}
                       timesheet={timesheet}
-                      onValidationChange={setIsFormValid}
                     />
                   )}
-                  <div className="space-y-2 pt-4 border-t mt-4">
-                    <Label htmlFor="recipients">Add More Recipients for EOD (Optional)</Label>
+                 
+                  <div className="p-5 bg-white rounded-lg border border-slate-200 mt-6">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center">
+                        <Share2 className="h-5 w-5 mr-3 text-indigo-600" />
+                        <Label htmlFor="recipients" className="text-lg font-bold text-gray-800">
+                         Add Timesheet Recipients
+                        </Label>
+                      </div>
+                      <span className="px-2 py-1 text-xs font-semibold text-gray-600 bg-gray-200 rounded-md">
+                        Optional
+                      </span>
+                    </div>
+
+                    <p className="mt-1 mb-4 text-sm text-gray-500">
+                     Forward this report to additional recipients if needed.
+                    </p>
+
                     <MultiSelect
                       id="recipients"
                       options={allEmployees}
@@ -524,24 +684,28 @@ export const ViewTimesheetDialog: React.FC<ViewTimesheetDialogProps> = ({
               ) : (
                 <>
                   <TimeLogDetails timeLog={timesheet} employeeHasProjects={employeeHasProjects} />
-                  <TimesheetProjectDetails timesheet={timesheet} employeeHasProjects={employeeHasProjects} />
+                  {employeeHasProjects && <TimesheetProjectDetails timesheet={timesheet} />}
                 </>
               )}
             </>
           )}
         </div>
-
+        
         <DialogFooter className="border-t pt-4">
           {emailStatus && <div className="text-sm text-gray-600 mr-4">{emailStatus}</div>}
-          
+         
           {!timesheet?.is_submitted && !isEditing && (
             <Button variant="outline" onClick={() => setIsEditing(true)}>Edit</Button>
           )}
-          
+         
           {canSubmit && isEditing && (
             <Button onClick={handleSubmit} disabled={isLoading || !isFormValid}>
-              {isLoading ? "Submitting..." : "Submit and Send EOD"}
+              {isLoading ? "Submitting..." : "Submit Timesheet"}
             </Button>
+          )}
+         
+          {timesheet?.is_submitted && (
+             <Button variant="outline" onClick={handleClose}>Close</Button>
           )}
         </DialogFooter>
       </DialogContent>

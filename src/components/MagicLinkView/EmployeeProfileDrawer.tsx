@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2 } from "lucide-react";
+import { Loader2, ArrowLeft } from "lucide-react";
 import { useSelector } from "react-redux";
 import EmployeeDataSelection, { DataSharingOptions } from "./EmployeeDataSelection";
 import { useEmployeeProfile } from "@/components/MagicLinkView/hooks/useEmployeeProfile";
@@ -13,11 +13,11 @@ import { useShareLink } from "@/components/MagicLinkView/hooks/useShareLink";
 import { EmployeeInfoCard } from "./EmployeeInfoCard";
 import { ProfileTabs } from "./ProfileTabs";
 import { Candidate } from "@/components/MagicLinkView/types";
-import { VerificationProcessSection } from "./VerificationProcessSection";
 import { useUanLookup } from "@/components/MagicLinkView/hooks/useUanLookup";
 import { useConsentLink } from "@/components/MagicLinkView/hooks/useConsentLink";
 import { useToast } from "@/components/ui/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { WorkHistorySection } from "./WorkHistorySection";
 
 interface EmployeeProfilePageProps {
   shareMode?: boolean;
@@ -47,7 +47,6 @@ const EmployeeProfilePage: React.FC<EmployeeProfilePageProps> = ({
     setCandidate,
   } = useEmployeeProfile(shareMode, shareId, initialSharedDataOptions);
 
-
   const {
     documents: verifiedDocuments,
     handleDocumentChange,
@@ -59,13 +58,13 @@ const EmployeeProfilePage: React.FC<EmployeeProfilePageProps> = ({
   } = useDocumentVerification(documents, shareMode);
 
   const {
-  workHistory,
-  setWorkHistory, // You might not need this if all state is managed in the hook
-  isVerifyingAll: isVerifyingAllWorkHistory,
-  verifyAllCompanies,
-  handleVerifySingleWorkHistory,
-  updateWorkHistoryItem,
-} = useWorkHistoryVerification(candidate, organization_id);
+    workHistory,
+    setWorkHistory,
+    isVerifyingAll: isVerifyingAllWorkHistory,
+    verifyAllCompanies,
+    handleVerifySingleWorkHistory,
+    updateWorkHistoryItem,
+  } = useWorkHistoryVerification(candidate, organization_id);
 
   console.log("candidateptofile", workHistory);
 
@@ -86,7 +85,6 @@ const EmployeeProfilePage: React.FC<EmployeeProfilePageProps> = ({
     setCurrentDataOptions,
   } = useShareLink(initialSharedDataOptions);
 
-    // ADD THE NEW HOOK
   const {
     isRequesting: isRequestingConsent,
     consentLink,
@@ -96,13 +94,7 @@ const EmployeeProfilePage: React.FC<EmployeeProfilePageProps> = ({
     setConsentLink,
   } = useConsentLink();
 
-const handleSaveUanResult = useCallback(async (
-    dataToSave: any
-  ) => {
-    // This is the corrected function. It no longer saves to the database.
-    // Its only responsibility is to update the user interface (UI).
-
-    // 1. Only proceed to update the UI if the lookup was successful.
+  const handleSaveUanResult = useCallback(async (dataToSave: any) => {
     if (dataToSave.status !== 1) {
       console.log("UAN lookup was not successful, skipping UI update.");
       return;
@@ -114,15 +106,11 @@ const handleSaveUanResult = useCallback(async (
       return;
     }
     
-    // 2. Prepare the updated metadata for the candidate profile.
     const updatedMetadata = {
-      ...candidate.metadata, // Keep existing metadata
-      uan: uanNumber,         // Add or update the uan field
+      ...candidate.metadata,
+      uan: uanNumber,
     };
 
-    // 3. Update the candidate's METADATA in the database.
-    // This is okay because it updates a different table (hr_job_candidates),
-    // which does not trigger the real-time loop.
     const { error: updateCandidateError } = await supabase
       .from('hr_job_candidates')
       .update({ metadata: updatedMetadata })
@@ -130,10 +118,8 @@ const handleSaveUanResult = useCallback(async (
 
     if (updateCandidateError) {
       toast({ title: "Profile Update Failed", description: updateCandidateError.message, variant: "destructive" });
-      // We can still try to update the local state even if DB update fails
     }
 
-    // 4. Update the local UI state to reflect the change immediately.
     setCandidate((prevCandidate) => ({
       ...prevCandidate,
       metadata: updatedMetadata,
@@ -149,10 +135,7 @@ const handleSaveUanResult = useCallback(async (
       description: `UAN ${uanNumber} has been updated on the profile.`,
       variant: 'success',
     });
-
-}, [candidate, setCandidate, setDocuments, toast]); // Corrected dependencies
-
-
+  }, [candidate, setCandidate, setDocuments, toast]);
 
   const {
     isLoading: isUanLoading,
@@ -177,7 +160,9 @@ const handleSaveUanResult = useCallback(async (
     }
   }, [shareMode, initialSharedDataOptions, setCurrentDataOptions]);
 
-  const [activeTab, setActiveTab] = useState<string>("resume-analysis");
+  // Separate state for left and right tabs
+const [leftActiveTab, setLeftActiveTab] = useState<string>("resume-analysis");
+const [rightActiveTab, setRightActiveTab] = useState<string>("skill-matrix");
 
   const normalizeSkills = (skills: any[] | undefined): string[] => {
     if (!skills || !skills.length) return ["N/A"];
@@ -206,15 +191,15 @@ const handleSaveUanResult = useCallback(async (
           ? candidate.metadata.preferredLocations.join(", ")
           : "N/A",
         resume: candidate.resume || candidate.metadata?.resume_url || "#",
-        currentSalary: candidate.currentSalary || "N/A",
-        expectedSalary: candidate.expectedSalary || "N/A",
+        currentSalary: candidate.current_salary  || "N/A",
+        expectedSalary: candidate.expected_salary || "N/A",
         linkedInId: candidate.metadata?.linkedInId || "N/A",
         noticePeriod: candidate.metadata?.noticePeriod || "N/A",
         hasOffers: candidate.metadata?.hasOffers || "N/A",
         offerDetails: candidate.metadata?.offerDetails || "N/A",
-         consentStatus: candidate.consent_status || 'not_requested', // Add this
+        consentStatus: candidate.consent_status || 'not_requested',
       }
-    : ({
+    : {
         id: "emp001",
         name: "Unknown Candidate",
         role: "N/A",
@@ -222,13 +207,16 @@ const handleSaveUanResult = useCallback(async (
         joinDate: "N/A",
         status: "N/A",
         tags: ["N/A"],
-        profileImage: "/lovable-Uploads/placeholder.png",
+        profileImage: "/lovable-uploads/placeholder.png",
         email: "N/A",
         phone: "N/A",
         location: "N/A",
         skills: ["N/A"],
-        experience: "N/A",
         skillRatings: [],
+        experience: "N/A",
+        relvantExpyears: "N/A",
+        relvantExpmonths: "N/A",
+        preferedLocation: "N/A",
         resume: "#",
         currentSalary: "N/A",
         expectedSalary: "N/A",
@@ -237,32 +225,15 @@ const handleSaveUanResult = useCallback(async (
         hasOffers: "N/A",
         offerDetails: "N/A",
         consentStatus: 'not_requested',
-      } as Candidate & { consentStatus: string });
+      };
 
   const employee = shareMode
     ? {
         ...employeeFormatted,
-        name: currentDataOptions?.personalInfo && candidate?.name ? candidate.name : "Shared Employee Profile",
-        role: currentDataOptions?.personalInfo && candidate?.metadata?.role ? candidate.metadata.role : "N/A",
-        department: currentDataOptions?.personalInfo && candidate?.metadata?.department ? candidate.metadata.department : "N/A",
-        joinDate: currentDataOptions?.personalInfo && candidate?.appliedDate ? candidate.appliedDate : "N/A",
-        status: "Shared",
-        tags: currentDataOptions?.personalInfo && candidate?.metadata?.tags ? candidate.metadata.tags : [],
-        profileImage: currentDataOptions?.personalInfo && candidate?.metadata?.profileImage ? candidate.metadata.profileImage : "/lovable-Uploads/placeholder.png",
         email: currentDataOptions?.contactInfo && candidate?.email ? candidate.email : "N/A",
         phone: currentDataOptions?.contactInfo && candidate?.phone ? candidate.phone : "N/A",
-        location: currentDataOptions?.contactInfo && candidate?.metadata?.currentLocation ? candidate.metadata.currentLocation : "N/A",
-        skills: currentDataOptions?.personalInfo && candidate?.skills ? normalizeSkills(candidate.skills) : ["N/A"],
-        experience: currentDataOptions?.personalInfo && candidate?.experience ? candidate.experience : "N/A",
-        relvantExpyears: currentDataOptions?.personalInfo && candidate?.metadata?.relevantExperience ? candidate.metadata.relevantExperience : "N/A",
-        relvantExpmonths: currentDataOptions?.personalInfo && candidate?.metadata?.relevantExperienceMonths ? candidate.metadata.relevantExperienceMonths : "N/A",
-        preferedLocation: Array.isArray(candidate?.metadata?.preferredLocations) && currentDataOptions?.personalInfo
-          ? candidate.metadata.preferredLocations.join(", ")
-          : "N/A",
-        skillRatings: currentDataOptions?.personalInfo && candidate?.skill_ratings ? candidate.skill_ratings : [],
-        resume: currentDataOptions?.personalInfo && (candidate?.resume || candidate?.metadata?.resume_url) ? candidate.resume || candidate.metadata.resume_url : "#",
-        currentSalary: currentDataOptions?.personalInfo && (candidate?.currentSalary ? candidate.currentSalary : "N/A"),
-        expectedSalary: currentDataOptions?.personalInfo && (candidate?.expectedSalary ? candidate.expectedSalary : "N/A"),
+        currentSalary: currentDataOptions?.personalInfo && candidate?.currentSalary ? candidate.currentSalary : "N/A",
+        expectedSalary: currentDataOptions?.personalInfo && candidate?.expectedSalary ? candidate.expectedSalary : "N/A",
         linkedInId: currentDataOptions?.contactInfo && candidate?.metadata?.linkedInId ? candidate.metadata.linkedInId : "N/A",
         noticePeriod: currentDataOptions?.personalInfo && candidate?.metadata?.noticePeriod ? candidate.metadata.noticePeriod : "N/A",
         hasOffers: currentDataOptions?.personalInfo && candidate?.metadata?.hasOffers ? candidate.metadata.hasOffers : "N/A",
@@ -270,14 +241,14 @@ const handleSaveUanResult = useCallback(async (
       }
     : employeeFormatted;
 
- const availableTabs = [
+  const availableTabs = [
     resumeAnalysis && "resume-analysis",
     (!shareMode || currentDataOptions?.skillinfo) && "skill-matrix",
     workHistory.length > 0 && "work-history",
-    (!shareMode || currentDataOptions?.documentsInfo) && 
-    "bg-verification",
+    (!shareMode || currentDataOptions?.documentsInfo) && "bg-verification",
     "resume",
   ].filter(Boolean) as string[];
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -331,111 +302,147 @@ const handleSaveUanResult = useCallback(async (
     );
   }
 
-  return (
-    <>
-      <div className="min-h-screen bg-gray-50 py-4 px-4 sm:px-6 lg:px-8">
-        <div className="w-full max-w-8xl mx-auto">
-          <div className="flex flex-col lg:flex-row gap-6">
-            <div className="lg:w-[65%] w-full">
-              <EmployeeInfoCard
-                employee={employee as any}
-                shareMode={shareMode}
-                sharedDataOptions={currentDataOptions}
-                onShareClick={() => setShowDataSelection(true)}
-                isSharing={isSharing}
-                magicLink={magicLink}
-                isCopied={isCopied}
-                onCopyMagicLink={copyMagicLink}
-                navigateBack={() => navigate(-1)}
-                isUanLoading={isUanLoading}
-                uanError={error}
-                uanData={uanData}
-                lookupMethod={lookupMethod}
-                setLookupMethod={setLookupMethod}
-                lookupValue={lookupValue}
-                setLookupValue={setLookupValue}
-                onUanLookup={onUanLookup}
-                isRequestingConsent={isRequestingConsent}
-  consentLink={consentLink}
-  isConsentLinkCopied={isConsentLinkCopied}
-  onGenerateConsentLink={() => generateConsentLink(candidate!, organization_id)}
-  onCopyConsentLink={copyConsentLink}
-              />
+ return (
+  <>
+    <div className="min-h-screen bg-gray-50 py-4 px-4 sm:px-6 lg:px-8">
+      <div className="w-full max-w-10xl mx-auto">
 
-              <ProfileTabs
-                activeTab={activeTab}
-                setActiveTab={setActiveTab}
-                availableTabs={availableTabs}
-                resumeAnalysis={resumeAnalysis}
-                workHistory={workHistory}
-                shareMode={shareMode}
-                sharedDataOptions={currentDataOptions}
-                employeeSkillRatings={employee.skillRatings}
-                onDocumentChange={handleDocumentChange}
-                onToggleEditing={toggleEditing}
-                onToggleUANResults={toggleUANResults}
-                onVerifyDocument={(type) =>
-                  verifyDocument(type, candidateId || '', workHistory, candidate, organization_id)
-                }
-                onSaveDocuments={() => saveDocuments(candidateId || '', candidate?.metadata)}
-                isSavingDocuments={isSavingDocuments}
-                isVerifyingAllWorkHistory={isVerifyingAllWorkHistory}
-              
-               
-       
-                employeeResumeUrl={employee.resume}
-                candidateId={candidateId}
-             
-                userId={user?.id}
-                organizationId={organization_id}
-                
-
-  onVerifyAllCompanies={verifyAllCompanies}
-  onVerifySingleWorkHistory={handleVerifySingleWorkHistory}
-  updateWorkHistoryItem={updateWorkHistoryItem}
-  candidate={candidate}
-              />
-            </div>
-            <div className="lg:w-[40%] w-full">
-              <VerificationProcessSection
-                candidate={candidate}
-                organizationId={organization_id}
-                userId={user?.id}
-                isUanLoading={isUanLoading}
-                uanData={uanData}
-                lookupMethod={lookupMethod}
-                setLookupMethod={setLookupMethod}
-                lookupValue={lookupValue}
-                setLookupValue={setLookupValue}
-                onUanLookup={onUanLookup}
-                documents={verifiedDocuments}
-                shareMode={shareMode}
-                onDocumentChange={handleDocumentChange}
-                onToggleEditing={toggleEditing}
-                onToggleUANResults={toggleUANResults}
-                onVerifyDocument={(type) =>
-                  verifyDocument(type, candidateId || '', workHistory, candidate, organization_id)
-                }
-                onSaveDocuments={() => saveDocuments(candidateId || '', candidate?.metadata)}
-                isSavingDocuments={isSavingDocuments}
-               isUanQueued={isUanQueued}
-               consentStatus={candidate?.consent_status}
-              />
-            </div>
+                {!shareMode && (
+          <div className="mb-4">
+            <Button
+              variant="outline"
+              onClick={() => navigate(-1)}
+              className="flex items-center gap-2"
+            >
+              <ArrowLeft size={16} />
+              <span>Back</span>
+            </Button>
           </div>
+        )}
+        {/* CHANGED: Single column layout - removed flex-row and width constraints */}
+        <div className="flex flex-col gap-6">
+          
+          {/* Employee Info Card - Full Width */}
+          <EmployeeInfoCard
+            employee={employee as any}
+            shareMode={shareMode}
+            sharedDataOptions={currentDataOptions}
+            onShareClick={() => setShowDataSelection(true)}
+            isSharing={isSharing}
+            magicLink={magicLink}
+            isCopied={isCopied}
+            onCopyMagicLink={copyMagicLink}
+            navigateBack={() => navigate(-1)}
+            isUanLoading={isUanLoading}
+            uanError={error}
+            uanData={uanData}
+            lookupMethod={lookupMethod}
+            setLookupMethod={setLookupMethod}
+            lookupValue={lookupValue}
+            setLookupValue={setLookupValue}
+            onUanLookup={onUanLookup}
+            isRequestingConsent={isRequestingConsent}
+            consentLink={consentLink}
+            isConsentLinkCopied={isConsentLinkCopied}
+            onGenerateConsentLink={() => generateConsentLink(candidate!, organization_id)}
+            onCopyConsentLink={copyConsentLink}
+            organizationId={organization_id}
+            userId={user?.id}
+            documents={verifiedDocuments}
+            onDocumentChange={handleDocumentChange}
+            onToggleEditing={toggleEditing}
+            onVerifyDocument={(type) => verifyDocument(type, candidateId || '', workHistory, candidate, organization_id)}
+            onSaveDocuments={() => saveDocuments(candidateId || '', candidate?.metadata)}
+            isSavingDocuments={isSavingDocuments}
+            isUanQueued={isUanQueued}
+          />
+
+          {/* Work History Timeline - Full Width */}
+          {workHistory.length > 0 && (
+            <WorkHistorySection
+              workHistory={workHistory}
+              shareMode={shareMode}
+              isVerifyingAll={isVerifyingAllWorkHistory}
+              onVerifyAllCompanies={verifyAllCompanies}
+              onVerifySingleWorkHistory={handleVerifySingleWorkHistory}
+              updateWorkHistoryItem={updateWorkHistoryItem}
+              candidate={candidate}
+            />
+          )}
+
+          {/* Skill Matrix - Full Width */}
+          <ProfileTabs
+            availableTabs={[
+              (!shareMode || currentDataOptions?.skillinfo) && "skill-matrix",
+            ].filter(Boolean) as string[]}
+            resumeAnalysis={resumeAnalysis}
+            workHistory={workHistory}
+            shareMode={shareMode}
+            sharedDataOptions={currentDataOptions}
+            employeeSkillRatings={employee.skillRatings}
+            onDocumentChange={handleDocumentChange}
+            onToggleEditing={toggleEditing}
+            onToggleUANResults={toggleUANResults}
+            onVerifyDocument={(type) =>
+              verifyDocument(type, candidateId || '', workHistory, candidate, organization_id)
+            }
+            onSaveDocuments={() => saveDocuments(candidateId || '', candidate?.metadata)}
+            isSavingDocuments={isSavingDocuments}
+            isVerifyingAllWorkHistory={isVerifyingAllWorkHistory}
+            employeeResumeUrl={employee.resume}
+            candidateId={candidateId}
+            userId={user?.id}
+            organizationId={organization_id}
+            onVerifyAllCompanies={verifyAllCompanies}
+            onVerifySingleWorkHistory={handleVerifySingleWorkHistory}
+            updateWorkHistoryItem={updateWorkHistoryItem}
+            candidate={candidate}
+          />
+
+          {/* Resume Analysis and Resume tabs - Full Width */}
+          <ProfileTabs
+            availableTabs={[
+              resumeAnalysis && "resume-analysis",
+              "resume"
+            ].filter(Boolean) as string[]}
+            resumeAnalysis={resumeAnalysis}
+            workHistory={workHistory}
+            shareMode={shareMode}
+            sharedDataOptions={currentDataOptions}
+            employeeSkillRatings={employee.skillRatings}
+            onDocumentChange={handleDocumentChange}
+            onToggleEditing={toggleEditing}
+            onToggleUANResults={toggleUANResults}
+            onVerifyDocument={(type) =>
+              verifyDocument(type, candidateId || '', workHistory, candidate, organization_id)
+            }
+            onSaveDocuments={() => saveDocuments(candidateId || '', candidate?.metadata)}
+            isSavingDocuments={isSavingDocuments}
+            isVerifyingAllWorkHistory={isVerifyingAllWorkHistory}
+            employeeResumeUrl={employee.resume}
+            candidateId={candidateId}
+            userId={user?.id}
+            organizationId={organization_id}
+            onVerifyAllCompanies={verifyAllCompanies}
+            onVerifySingleWorkHistory={handleVerifySingleWorkHistory}
+            updateWorkHistoryItem={updateWorkHistoryItem}
+            candidate={candidate}
+          />
+
         </div>
       </div>
-
-      {!shareMode && (
-        <EmployeeDataSelection
-          open={showDataSelection}
-          onClose={() => setShowDataSelection(false)}
-          onConfirm={(options) => generateMagicLink(options, candidate!, jobId, organization_id)}
-          defaultOptions={currentDataOptions}
-        />
-      )}
-    </>
-  );
+    </div>
+ 
+    {!shareMode && (
+      <EmployeeDataSelection
+        open={showDataSelection}
+        onClose={() => setShowDataSelection(false)}
+        onConfirm={(options) => generateMagicLink(options, candidate!, jobId, organization_id)}
+        defaultOptions={currentDataOptions}
+      />
+    )}
+  </>
+);
 };
 
 export default EmployeeProfilePage;

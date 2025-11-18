@@ -75,19 +75,16 @@ export const clockIn = async (
 
 export const clockOut = async (
   timeLogId: string,
-  elapsedSeconds: number,
-  inGracePeriod: boolean
+  durationMinutes: number,
+  status: 'grace_period' | 'normal' | 'auto_terminated'
 ): Promise<boolean> => {
   try {
-    const now = new Date();
-    const durationMinutes = Math.floor(elapsedSeconds / 60);
-    
     const { error } = await supabase
       .from('time_logs')
       .update({
-        clock_out_time: now.toISOString(),
+        clock_out_time: new Date().toISOString(),
         duration_minutes: durationMinutes,
-        status: inGracePeriod ? 'grace_period' : 'normal'
+        status: status
       })
       .eq('id', timeLogId);
     
@@ -152,6 +149,7 @@ export const fetchTimeLogs = async (employeeId: string): Promise<TimeLog[]> => {
         approved_by: item.approved_by || null,
         rejection_reason: item.rejection_reason || null,
         project_time_data: item.project_time_data || null,
+        recruiter_report_data: item.recruiter_report_data || null,
         created_at: item.created_at || null,
         updated_at: null,
         project: item.project_id ? { name: `Project ${item.project_id.substring(0, 8)}` } : null,
@@ -182,28 +180,44 @@ export const fetchTimeLogs = async (employeeId: string): Promise<TimeLog[]> => {
 export const submitTimesheet = async (
   timeLogId: string,
   formData: any,
-  organization_id: string
+  organization_id: string,
+  finalDurationMinutes?: number
 ): Promise<boolean> => {
   try {
-
     const authData = getAuthDataFromLocalStorage();
-        if (!authData) {
-          throw new Error('Failed to retrieve authentication data');
-        }
-        const { organization_id, userId } = authData;
-    const projectTimeData = formData.projectEntries
-      ? { projects: formData.projectEntries }
-      : null;
+    if (!authData) {
+      throw new Error('Failed to retrieve authentication data');
+    }
+    const { organization_id: authOrgId, userId } = authData;
+
+    const updatePayload: any = {
+      is_submitted: true,
+      notes: formData.notes, // This will be the overall summary for everyone
+      updated_at: new Date().toISOString(),
+    };
+
+        // --- NEW: Add clock out time and duration if provided ---
+    if (finalDurationMinutes !== undefined) {
+        updatePayload.clock_out_time = new Date().toISOString();
+        updatePayload.duration_minutes = finalDurationMinutes;
+        // Optionally update status based on grace period, etc.
+        updatePayload.status = 'normal'; 
+    }
+   
+    // Conditionally add the recruiter-specific data
+    if (formData.recruiter_report_data) {
+        updatePayload.recruiter_report_data = formData.recruiter_report_data;
+    }
+   
+    // Conditionally add project-based data
+    if (formData.projectEntries) {
+        updatePayload.project_time_data = { projects: formData.projectEntries };
+        updatePayload.total_working_hours = formData.totalWorkingHours || 8;
+    }
 
     const { error: timeLogError } = await supabase
       .from('time_logs')
-      .update({
-        is_submitted: true,
-        notes: formData.title || formData.workReport || null,
-        project_time_data: projectTimeData,
-        total_working_hours: formData.totalWorkingHours || 8,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updatePayload)
       .eq('id', timeLogId);
 
     if (timeLogError) throw timeLogError;

@@ -5,18 +5,20 @@ import { MdDashboardCustomize, MdOutlineManageAccounts, MdOutlineEmojiPeople, Md
 import { ImProfile } from "react-icons/im";
 import { GoGoal } from "react-icons/go";
 import { AiOutlineProfile } from "react-icons/ai";
-import { FaFileInvoiceDollar, FaSackDollar, FaArrowsDownToPeople, FaRegCalendarCheck, FaDropbox } from "react-icons/fa6";
+import { FaFileInvoiceDollar, FaSackDollar, FaArrowsDownToPeople, FaRegCalendarCheck, FaDropbox, FaFileLines } from "react-icons/fa6";
 import { TbCheckbox } from "react-icons/tb";
 import { GoOrganization } from "react-icons/go";
 import { VscOrganization } from "react-icons/vsc";
 import { GrDocumentTime } from "react-icons/gr";
 import { LuCalendarPlus, LuUserSearch } from "react-icons/lu";
-import { BsShieldLock, BsShieldCheck } from "react-icons/bs";
+import { BsShieldLock, BsShieldCheck, BsPin } from "react-icons/bs";
 import { FaUserShield, FaProjectDiagram, FaUserTie } from 'react-icons/fa';
 import { RiCustomerService2Fill } from 'react-icons/ri';
 import { TbDatabaseSearch } from "react-icons/tb";
 import { LiaBusinessTimeSolid } from "react-icons/lia";
 import { CgOrganisation } from "react-icons/cg";
+
+import { BarChart3, TrendingUp, LayoutDashboard } from 'lucide-react';
 
 
 
@@ -39,7 +41,8 @@ const orgSuperAdminAllItems = [
   { icon: FiBriefcase, label: "Jobs", path: "/jobs" },
   { icon: LuUserSearch, label: "All Candidates", path: "/all-candidates" },
   { icon: LuUserSearch, label: "Talent Pool", path: "/talent-pool" },
-  { icon: TbDatabaseSearch, label: "Zive-X", path: "/zive-x" },
+  { icon: BsPin, label: "Bench Pool", path: "/bench-pool" },
+  { icon: TbDatabaseSearch, label: "Zive-X", path: "/zive-x", beta: true },
   { icon: GoGoal, label: "Goals", path: "/goals" },
   { icon: ImProfile, label: "My Profile", path: "/profile" },
   { icon: AiOutlineProfile, label: "Reports", path: "/reports" },
@@ -48,6 +51,7 @@ const orgSuperAdminAllItems = [
             { icon: FaFileInvoiceDollar, label: "Invoices", path: "/accounts/invoices",  },
             { icon: FaSackDollar, label: "Expenses", path: "/accounts/expenses",  },
             { icon: FiBriefcase, label: "Payroll", path: "/payroll",  },
+            { icon: FaFileLines, label: "Bank Statement", path: "/finance/bank-statement" },
   {
     icon: TbCheckbox,
     label: "Approvals",
@@ -98,7 +102,9 @@ const demoOrgSuperAdminMenu = [
   { icon: FiUsers, label: "Employees", path: "/employee" },
   { icon: FiBriefcase, label: "Jobs", path: "/jobs" },
   { icon: LuUserSearch, label: "Talent Pool", path: "/talent-pool" },
-  // { icon: TbDatabaseSearch, label: "Zive-X", path: "/zive-x" },
+  { icon: BsPin, label: "Bench Pool", path: "/bench-pool" },
+
+  // { icon: TbDatabaseSearch, label: "Zive-X", path: "/zive-x", beta: true },
   { icon: GoGoal, label: "Goals", path: "/goals" },
   { icon: ImProfile, label: "My Profile", path: "/profile" },
   { icon: AiOutlineProfile, label: "Reports", path: "/reports" },
@@ -150,9 +156,12 @@ const recruitmentFirmOrgSuperAdminMenu = [
         icon: MdPeopleAlt, // Using the same icon for consistency
         items: [
            { icon: MdDashboardCustomize, label: "Dashboard", path: "/dashboard" },
-  { icon: FiBriefcase, label: "Jobs", path: "/jobs" },
+  { icon: FiUsers, label: "Employees", path: "/employee" },
+  { icon: FiBriefcase, label: "Jobs", path: "/jobs" }, 
   { icon: LuUserSearch, label: "Talent Pool", path: "/talent-pool" },
-  // { icon: TbDatabaseSearch, label: "Zive-X", path: "/zive-x" },
+  { icon: BsPin, label: "Bench Pool", path: "/bench-pool" },
+
+  { icon: TbDatabaseSearch, label: "Zive-X", path: "/zive-x", beta: true },
   { icon: GoGoal, label: "Goals", path: "/goals" },
   { icon: ImProfile, label: "My Profile", path: "/profile" },
   { icon: AiOutlineProfile, label: "Reports", path: "/reports" },
@@ -167,15 +176,15 @@ const recruitmentFirmOrgSuperAdminMenu = [
       { icon: TbCheckbox , label:"Leave", path: "/approvals/leave"},
     ],
   },
-  {
-    icon: FiSettings,
-    label: "Settings",
-    path: "#",
-    dropdown: [
-      { icon: FiSettings, label: "Leave Policies", path: "/admin/leave-policies" },
-      { icon: IoCalendarNumberOutline, label: "Official Holidays", path: "/admin/holidays" },
-    ],
-  },
+  // {
+  //   icon: FiSettings,
+  //   label: "Settings",
+  //   path: "#",
+  //   dropdown: [
+  //     { icon: FiSettings, label: "Leave Policies", path: "/admin/leave-policies" },
+  //     { icon: IoCalendarNumberOutline, label: "Official Holidays", path: "/admin/holidays" },
+  //   ],
+  // },
   { icon: MdOutlineManageAccounts, label: "User Management", path: "/user-management" },
 
         ],
@@ -220,7 +229,7 @@ const AscendionOrgSuperAdminMenu = [
 // 2. Define the items for each suite
 const projectSuiteLabels = ["Clients", "Projects"];
 const salesSuiteLabels = ["Companies", "People", "Lists", "Kanban"];
-const financeSuiteLabels = ["Finance", "Invoices", "Expenses", "Payroll"];
+const financeSuiteLabels = ["Finance", "Invoices", "Expenses", "Payroll", "Bank Statement"];
 const verificationSuiteLabels = ["All Candidates"];
 
 const projectSuiteItems = orgSuperAdminAllItems.filter(item => projectSuiteLabels.includes(item.label));
@@ -272,7 +281,9 @@ const adminAllItems = [
     { icon: FiUsers, label: "Employees", path: "/employee", department: "Human Resource", },
     { icon: FiBriefcase, label: "Jobs", path: "/jobs" },
   { icon: LuUserSearch, label: "Talent Pool", path: "/talent-pool" },
-  { icon: TbDatabaseSearch, label: "Zive-X", path: "/zive-x", department:"Human Resource" },
+  { icon: BsPin, label: "Bench Pool", path: "/bench-pool" },
+
+  { icon: TbDatabaseSearch, label: "Zive-X", path: "/zive-x", department:"Human Resource", beta: true },
     { icon: GoGoal, label: "Goals", path: "/goals" },
     { icon: AiOutlineProfile, label: "Reports", path: "/reports" },
     { icon: ImProfile, label: "My Profile", path: "/profile" },
@@ -308,7 +319,7 @@ const adminAllItems = [
 ];
 
 // 2. Define labels for each suite for the Admin role
-const adminHrSuiteLabels = ["Dashboard", "Employees", "Jobs", "Talent Pool", "Zive-X", "Goals", "Reports", "My Profile", "Time Sheet", "Regularization", "Leave", "Attendance", "Calendar", "Settings"];
+const adminHrSuiteLabels = ["Dashboard", "Employees", "Jobs", "Talent Pool", "Bench Pool", "Zive-X", "Goals", "Reports", "My Profile", "Time Sheet", "Regularization", "Leave", "Attendance", "Calendar", "Settings"];
 const adminProjectSuiteLabels = ["Clients", "Projects"];
 const adminSalesSuiteLabels = ["Companies", "People", "Lists", "Kanban"];
 const adminFinanceSuiteLabels = ["Finance", "Invoices", "Expenses", "Payroll"];
@@ -370,6 +381,15 @@ export const menuItemsByRole = {
     { icon: MdDashboardCustomize, label: "Dashboard", path: "/dashboard" },
     { icon: SiAwsorganizations, label: "Organization", path: "/organization" },
      { icon: BsShieldCheck, label: "Verifications", path: "/verifications" },
+     {
+    icon: BarChart3, // Using BarChart3 from lucide-react
+    label: "Reports",
+    path: "/reports", // Parent path
+    dropdown: [
+      { icon: TrendingUp, label: "Org. Talent Trends", path: "/reports/organization-talent-trends" },
+      // Add other reports specific to an organization here
+    ],
+  },
     { icon: FiSettings, label: "Settings", path: "/settings" },
   ],
 organization_superadmin: (organizationId, organization) => {
@@ -406,8 +426,10 @@ employee: (departmentName, designationName, userId) => {
 
     const hrSpecificItems = [
       { icon: FiBriefcase, label: "Jobs", path: "/jobs" },
+      { icon: AiOutlineProfile, label: "My Submission", path: "/my-submission" },
       { icon: LuUserSearch, label: "Talent Pool", path: "/talent-pool" },
-      { icon: TbDatabaseSearch, label: "Zive-X", path: "/zive-x" },
+  { icon: BsPin, label: "Bench Pool", path: "/bench-pool" },
+      { icon: TbDatabaseSearch, label: "Zive-X", path: "/zive-x", beta: true },
       { icon: GoGoal, label: "Goals", path: "/goalsview" },
       { icon: AiOutlineProfile, label: "Reports", path: "/reports" },
     ];

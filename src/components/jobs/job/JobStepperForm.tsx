@@ -1,5 +1,6 @@
+// JobStepperForm.tsx
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { JobData } from "@/lib/types";
 import { useJobFormState } from "./hooks/useJobFormState";
@@ -11,116 +12,100 @@ import { useSelector } from "react-redux";
 
 interface JobStepperFormProps {
   jobType: "Internal" | "External";
-  onClose: () => void;
+  internalType: "Inhouse" | "Client Side" | null;
+  onBack: () => void;
   editJob: JobData | null;
   onSave: (job: JobData) => void;
 }
 
 export const JobStepperForm = ({ 
   jobType,
-  onClose, 
+  internalType,
+  onBack,
   editJob = null,
   onSave
 }: JobStepperFormProps) => {
   const [currentStep, setCurrentStep] = useState(1);
-  const totalSteps = getTotalSteps(jobType);
+  const totalSteps = getTotalSteps(jobType, internalType);
   
-  const { formData, updateFormData } = useJobFormState({ 
-    jobType,
-    editJob
-  });
+  const { formData, updateFormData } = useJobFormState({ jobType, editJob });
   const user = useSelector((state: any) => state.auth.user);
-const organization_id = useSelector((state: any) => state.auth.organization_id);
+  const organization_id = useSelector((state: any) => state.auth.organization_id);
   
   const handleNext = () => {
     if (currentStep < totalSteps) {
       setCurrentStep(prev => prev + 1);
     }
   };
+  const handlePrevious = () => { if (currentStep > 1) setCurrentStep(prev => prev - 1); };
+  const handleStepClick = (step: number) => { if (step < currentStep) setCurrentStep(step); };
   
-  const handlePrevious = () => {
-    if (currentStep > 1) {
-      setCurrentStep(prev => prev - 1);
-    }
-  };
+  const handleStepChange = (step: string, data: any) => updateFormData(step, data);
   
-  const handleStepChange = (step: string, data: any) => {
-    updateFormData(step, data);
-  };
-  
-  const isCurrentStepValid = validateStep(currentStep, formData, jobType);
-  console.log("Is Current Step Valid:", isCurrentStepValid);
+  const isCurrentStepValid = validateStep(currentStep, formData, jobType, internalType);
   
   const handleSave = () => {
     try {
-      // Map form data to JobData structure
-      console.log("Form data being mapped:", formData);
-      const jobData = mapFormDataToJobData(formData, editJob, jobType);
-  
-      // Attach organization_id and created_by
-      const finalJobData = {
-        ...jobData,
-        organization_id,
-        created_by: user?.id, // Assuming user object has an `id`
+      const jobDataForDatabase = mapFormDataToJobData(formData, editJob, jobType, internalType);
+      
+      const finalJobData = { 
+        ...jobDataForDatabase, 
+        organization_id, 
+        created_by: user?.id 
       };
-  
-      console.log("Final job data with organization and creator:", finalJobData);
-  
-      // Pass updated job data to parent component
-      onSave(finalJobData);
-    } catch (error) {
-      console.error("Error saving job:", error);
+      
+      console.log("Step 3 (Stepper): Passing this complete object to onSave:", finalJobData);
+      onSave(finalJobData as JobData);
+
+    } catch (error) { 
+      console.error("Error in handleSave, preparing data for saving:", error); 
     }
   };
   
   return (
-    <div className="space-y-8 py-4">
-      {/* Stepper Navigation */}
+    <div className="flex flex-col gap-8 py-4">
       <StepperNavigation 
         currentStep={currentStep} 
-        totalSteps={totalSteps}
         jobType={jobType}
+        internalType={internalType}
+        onStepClick={handleStepClick}
       />
-      
-      {/* Step Content */}
-      <div className="mt-8">
-        <StepRenderer 
-          currentStep={currentStep}
-          jobType={jobType}
-          formData={formData}
-          onChange={handleStepChange}
-          updateFormData={updateFormData}
-        />
-      </div>
-      
-      {/* Navigation Buttons */}
-      <div className="flex justify-between pt-4">
-        <Button 
-          variant="outline" 
-          onClick={currentStep === 1 ? onClose : handlePrevious}
-        >
-          {currentStep === 1 ? "Cancel" : "Back"}
-        </Button>
-        
-        <div className="flex gap-2">
-          {currentStep < totalSteps ? (
-            <Button 
-              onClick={handleNext} 
-              disabled={!isCurrentStepValid}
-            >
-              Next
-            </Button>
-          ) : (
-            <Button 
-              onClick={handleSave}
-              disabled={!isCurrentStepValid}
-              className="bg-green-600 hover:bg-green-700"
-            >
-              {editJob ? "Update Job" : "Create Job"}
-            </Button>
-          )}
+      <div className="flex-grow flex flex-col">
+        <div className="flex-grow min-h-[300px]">
+          <StepRenderer 
+            currentStep={currentStep}
+            jobType={jobType}
+            formData={formData}
+            internalType={internalType}
+            updateFormData={handleStepChange}
+          />
+        </div>
+        <div className="flex justify-between pt-8 mt-4 border-t">
+          <Button 
+            variant="outline" 
+            onClick={currentStep === 1 ? onBack : handlePrevious}
+          >
+            {currentStep === 1 ? "Back" : "Previous Step"}
+          </Button>
+          <div className="flex gap-2">
+            {currentStep < totalSteps ? (
+              <Button onClick={handleNext} disabled={!isCurrentStepValid}>
+                Next Step
+              </Button>
+            ) : (
+              <Button 
+                onClick={handleSave} 
+                disabled={!isCurrentStepValid} 
+                className="bg-green-600 hover:bg-green-700"
+              >
+                {editJob ? "Update Job" : "Create Job"}
+              </Button>
+            )}
+          </div>
         </div>
       </div>
     </div>
   );
 };
+
+export default JobStepperForm;

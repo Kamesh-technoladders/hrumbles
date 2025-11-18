@@ -6,7 +6,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { getAuthDataFromLocalStorage } from '@/utils/localstorage';
 
 export type InvoiceStatus = 'Paid' | 'Unpaid' | 'Overdue' | 'Draft';
-export type ExpenseCategory = 'Rent' | 'Utilities' | 'Salary' | 'Office Supplies' | 'Travel' | 'Marketing' | 'Software' | 'Hardware' | 'Other';
+export type ExpenseCategory = 'Professional Services' | 'Food' | 'Travel' | 'Office Supplies' | 'Software' | 'Hardware' | 'Utilities' | 'Marketing' | 'Rent' | 'Salary' | 'Other';
 export type PaymentMethod = 'Cash' | 'Credit Card' | 'Debit Card' | 'Bank Transfer' | 'UPI' | 'Check' | 'Other';
 
 export interface Invoice {
@@ -61,11 +61,20 @@ export interface Expense {
   receiptUrl?: string;
   notes?: string;
   vendor?: string;
+  vendorAddress?: string;
+  invoiceNumber?: string;
+  taxableAmount?: number;
+  cgst?: number;
+  sgst?: number;
+  hsn?: string;
+  sac?: string;
+  gstin?: string; 
   organizationId?: string;
   createdBy?: string;
   status?: string;
   createdAt?: string;
   updatedAt?: string;
+  reconciliation_status: 'matched' | 'suggested' | 'unmatched';
 }
 
 export interface AccountsStats {
@@ -104,7 +113,7 @@ interface AccountsState {
 
   // Expense actions
   fetchExpenses: (timeFilter?: string) => Promise<void>;
-  addExpense: (expense: Omit<Expense, 'id'>, receiptFile?: File) => Promise<void>;
+  addExpense: (expense: Partial<Omit<Expense, 'id'>>) => Promise<void>;
   updateExpense: (id: string, data: Partial<Expense>, receiptFile?: File) => Promise<void>;
   deleteExpense: (id: string) => Promise<void>;
   selectExpense: (id: string | null) => void;
@@ -500,7 +509,7 @@ export const useAccountsStore = create<AccountsState>((set, get) => ({
         .from('hr_invoices')
         .select('*')
         .eq('id', id)
-        .eq('created_by', userData.user.id)
+        // .eq('created_by', userData.user.id)
         .eq('organization_id', organization_id)
         .single();
 
@@ -586,7 +595,7 @@ export const useAccountsStore = create<AccountsState>((set, get) => ({
         .from('hr_invoices')
         .delete()
         .eq('id', id)
-        .eq('created_by', userData.user.id)
+        // .eq('created_by', userData.user.id)
         .eq('organization_id', organization_id);
 
       if (deleteError) {
@@ -747,22 +756,39 @@ export const useAccountsStore = create<AccountsState>((set, get) => ({
         return;
       }
 
+      // --- FIX: THIS IS THE CORRECTED MAPPING ---
       const expenses: Expense[] = expensesData.map((expense: any) => ({
         id: expense.id,
         category: expense.category as ExpenseCategory,
         description: expense.description,
-        date: formatDate(expense.date),
+        date: expense.date,
         amount: expense.amount,
         paymentMethod: expense.payment_method as PaymentMethod,
         receiptUrl: expense.receipt_url || undefined,
         notes: expense.notes || undefined,
         vendor: expense.vendor || undefined,
+        
+        // --- Map all missing fields from snake_case to camelCase ---
+        vendorAddress: expense.vendor_address || undefined,
+        invoiceNumber: expense.invoice_number || undefined,
+        taxableAmount: expense.taxable_amount,
+        cgst: expense.cgst,
+        sgst: expense.sgst,
+        hsn: expense.hsn || undefined,
+        sac: expense.sac || undefined,
+        gstin: expense.gstin || undefined,
+
         organizationId: expense.organization_id || undefined,
         createdBy: expense.created_by || undefined,
         status: expense.status || undefined,
         createdAt: expense.created_at || undefined,
         updatedAt: expense.updated_at || undefined,
+
+         reconciliation_status: expense.reconciliation_status || 'unmatched',
       }));
+      // --- END OF FIX ---
+        
+
 
       set({
         expenses,
@@ -774,7 +800,7 @@ export const useAccountsStore = create<AccountsState>((set, get) => ({
     }
   },
 
- addExpense: async (expense: Omit<Expense, 'id'>) => {
+  addExpense: async (expense: Partial<Omit<Expense, 'id'>>) => {
     try {
       const { data: userData, error: userError } = await supabase.auth.getUser();
       if (userError || !userData?.user) {
@@ -787,14 +813,14 @@ export const useAccountsStore = create<AccountsState>((set, get) => ({
       }
       const { organization_id } = authData;
       
-      // The expense object now contains the receiptUrl directly from the form
+      // --- FIX: THIS IS THE CORRECTED DATA OBJECT FOR INSERTION ---
       const expenseData = {
         category: expense.category,
         description: expense.description,
-        date: parseDate(expense.date),
+        date: expense.date ? parseDate(expense.date) : new Date().toISOString().split('T')[0],
         amount: expense.amount,
         payment_method: expense.paymentMethod,
-        receipt_url: expense.receiptUrl || null, // Use the URL from the payload
+        receipt_url: expense.receiptUrl || null,
         notes: expense.notes || null,
         vendor: expense.vendor || null,
         created_by: userData.user.id,
@@ -802,7 +828,19 @@ export const useAccountsStore = create<AccountsState>((set, get) => ({
         organization_id: organization_id,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+
+        // --- Map all missing fields from camelCase to snake_case ---
+        vendor_address: expense.vendorAddress || null,
+        invoice_number: expense.invoiceNumber || null,
+        taxable_amount: expense.taxableAmount || null,
+        cgst: expense.cgst || null,
+        sgst: expense.sgst || null,
+        hsn: expense.hsn || null,
+        sac: expense.sac || null,
+        gstin: expense.gstin || null,
+
       };
+      // --- END OF FIX ---
 
       const { error: expenseError } = await supabase
         .from('hr_expenses')
@@ -820,58 +858,6 @@ export const useAccountsStore = create<AccountsState>((set, get) => ({
     }
   },
   
-  // FIX: Simplified signature
-  updateExpense: async (id: string, data: Partial<Expense>) => {
-    try {
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (userError || !userData?.user) {
-        throw new Error('You must be signed in to update an expense.');
-      }
-
-      const authData = getAuthDataFromLocalStorage();
-      if (!authData) {
-        throw new Error('Failed to retrieve authentication data');
-      }
-      const { organization_id } = authData;
-
-      const updateData: any = {};
-      if (data.category) updateData.category = data.category;
-      if (data.description) updateData.description = data.description;
-      if (data.date) updateData.date = parseDate(data.date);
-      if (data.amount !== undefined) updateData.amount = data.amount;
-      if (data.paymentMethod) updateData.payment_method = data.paymentMethod;
-      // Handle the receiptUrl passed in the data object
-      if (data.receiptUrl !== undefined) updateData.receipt_url = data.receiptUrl || null;
-      if (data.notes !== undefined) updateData.notes = data.notes;
-      if (data.vendor !== undefined) updateData.vendor = data.vendor;
-      if (data.status !== undefined) updateData.status = data.status;
-      updateData.updated_at = new Date().toISOString();
-
-      const { error } = await supabase
-        .from('hr_expenses')
-        .update(updateData)
-        .eq('id', id)
-        .eq('created_by', userData.user.id)
-        .eq('organization_id', organization_id);
-
-      if (error) {
-        throw new Error(`Error updating expense: ${error.message}`);
-      }
-
-      await get().fetchExpenses();
-      set((state) => ({
-        selectedExpense: state.selectedExpense?.id === id
-          ? { ...state.selectedExpense, ...data }
-          : state.selectedExpense,
-      }));
-      toast.success('Expense updated successfully');
-    } catch (error) {
-      console.error('Error updating expense:', error);
-      toast.error(error.message || 'Failed to update expense. Please try again.');
-    }
-  },
-
-
   updateExpense: async (id, data, receiptFile) => {
     try {
       const { data: userData, error: userError } = await supabase.auth.getUser();
@@ -903,6 +889,7 @@ export const useAccountsStore = create<AccountsState>((set, get) => ({
       }
       const { organization_id } = authData;
 
+      // --- FIX: THIS IS THE CORRECTED DATA OBJECT FOR UPDATING ---
       const updateData: any = {};
       if (data.category) updateData.category = data.category;
       if (data.description) updateData.description = data.description;
@@ -912,9 +899,20 @@ export const useAccountsStore = create<AccountsState>((set, get) => ({
       if (receiptUrl !== undefined) updateData.receipt_url = receiptUrl || null;
       if (data.notes !== undefined) updateData.notes = data.notes;
       if (data.vendor !== undefined) updateData.vendor = data.vendor;
-      if (data.organizationId !== undefined) updateData.organization_id = data.organizationId;
       if (data.status !== undefined) updateData.status = data.status;
+
+      // --- Map all missing fields from camelCase to snake_case for update ---
+      if (data.vendorAddress !== undefined) updateData.vendor_address = data.vendorAddress;
+      if (data.invoiceNumber !== undefined) updateData.invoice_number = data.invoiceNumber;
+      if (data.taxableAmount !== undefined) updateData.taxable_amount = data.taxableAmount;
+      if (data.cgst !== undefined) updateData.cgst = data.cgst;
+      if (data.sgst !== undefined) updateData.sgst = data.sgst;
+      if (data.hsn !== undefined) updateData.hsn = data.hsn;
+      if (data.sac !== undefined) updateData.sac = data.sac;
+      if (data.gstin !== undefined) updateData.gstin = data.gstin; 
+      
       updateData.updated_at = new Date().toISOString();
+      // --- END OF FIX ---
 
       const { error } = await supabase
         .from('hr_expenses')
@@ -940,83 +938,63 @@ export const useAccountsStore = create<AccountsState>((set, get) => ({
     }
   },
 
-  deleteExpense: async (id) => {
+deleteExpense: async (id: string) => {
     try {
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (userError || !userData?.user) {
-        throw new Error('You must be signed in to delete an expense.');
-      }
-
       const authData = getAuthDataFromLocalStorage();
-      if (!authData) {
-        throw new Error('Failed to retrieve authentication data');
-      }
+      if (!authData) throw new Error('Authentication data not found.');
       const { organization_id } = authData;
 
-      const { data: expenseData, error: fetchError } = await supabase
+      // Step 1: Fetch the expense to backup WITHOUT using .single()
+      const { data: expenseDataArray, error: fetchError } = await supabase
         .from('hr_expenses')
         .select('*')
         .eq('id', id)
-        .eq('created_by', userData.user.id)
-        .eq('organization_id', organization_id)
-        .single();
+        .eq('organization_id', organization_id);
 
       if (fetchError) {
-        throw new Error(`Error fetching expense: ${fetchError.message}`);
+        // This is a real database error
+        throw new Error(`Database error: ${fetchError.message}`);
       }
 
-      if (!expenseData) {
-        throw new Error('Expense not found or you do not have permission to delete it.');
+      // If no expense is found, it's likely already deleted. Exit gracefully.
+      if (!expenseDataArray || expenseDataArray.length === 0) {
+        console.warn(`Expense with ID ${id} not found for deletion. It might already be deleted.`);
+        await get().fetchExpenses(); // Refresh state just in case
+        return; 
       }
+      const expenseData = expenseDataArray[0];
 
-      const { error: backupError } = await supabase
-        .from('backup_expenses')
-        .insert({
-          id: expenseData.id,
-          category: expenseData.category,
-          description: expenseData.description,
-          date: expenseData.date,
-          amount: expenseData.amount,
-          payment_method: expenseData.payment_method,
-          receipt_url: expenseData.receipt_url,
-          notes: expenseData.notes,
-          vendor: expenseData.vendor,
-          created_at: expenseData.created_at,
-          updated_at: expenseData.updated_at,
-          organization_id: organization_id,
-          created_by: expenseData.created_by,
-          status: expenseData.status,
-          deleted_at: new Date().toISOString(),
-        });
+      // Step 2: Backup the expense
+      const { error: backupError } = await supabase.from('backup_expenses').insert({
+        ...expenseData, // Use spread operator for cleaner backup
+        deleted_at: new Date().toISOString(),
+      });
 
       if (backupError) {
-        throw new Error(`Error backing up expense: ${backupError.message}`);
+        throw new Error(`Backup failed: ${backupError.message}`);
       }
 
+      // Step 3: Delete the original expense from the database
       const { error: deleteError } = await supabase
         .from('hr_expenses')
         .delete()
-        .eq('id', id)
-        .eq('created_by', userData.user.id)
-        .eq('organization_id', organization_id);
+        .match({ id: id, organization_id: organization_id }); // Use .match for safety
 
       if (deleteError) {
-        await supabase
-          .from('backup_expenses')
-          .delete()
-          .eq('id', id);
-        throw new Error(`Error deleting expense: ${deleteError.message}`);
+        // Attempt to roll back the backup if the deletion fails
+        await supabase.from('backup_expenses').delete().eq('id', id);
+        throw new Error(`Deletion failed: ${deleteError.message}`);
       }
-
+      
+      // Step 4: Update local state and show success message
       await get().fetchExpenses();
-      set((state) => ({
-        selectedExpense: state.selectedExpense?.id === id ? null : state.selectedExpense,
-      }));
-
       toast.success('Expense deleted successfully');
-    } catch (error) {
+
+    } catch (error: any) {
       console.error('Error deleting expense:', error);
-      toast.error(error.message || 'Failed to delete expense. Please try again.');
+      toast.error(error.message || 'Failed to delete expense.');
+      // Rethrow the error so it can be caught by the calling UI component if needed
+      throw error;
     }
   },
 

@@ -26,12 +26,11 @@ const ClientInformationFields = ({ data, onChange }: ClientInformationFieldsProp
   useEffect(() => {
     const fetchClients = async () => {
       const { data: clientData } = await supabase.from("hr_clients").select("*");
-      const validClients = clientData.filter(client =>
-        client.service_type.includes("permanent")
-      );
+    
 
-      setClients(clientData);
-      setFilteredClients(validClients);
+// NEW (all clients)
+setClients(clientData || []);
+setFilteredClients(clientData || []);
     };
 
     const fetchContacts = async () => {
@@ -90,7 +89,7 @@ const ClientInformationFields = ({ data, onChange }: ClientInformationFieldsProp
       </div>
 
       {/* End Client Field */}
-      <div className="space-y-2">
+      {/* <div className="space-y-2">
         <Label htmlFor="endClient">End Client</Label>
         <Input 
           id="endClient" 
@@ -98,7 +97,7 @@ const ClientInformationFields = ({ data, onChange }: ClientInformationFieldsProp
           onChange={(e) => onChange({ endClient: e.target.value })} 
           placeholder="Enter end client (if different)"
         />
-      </div>
+      </div> */}
 
       {/* Point of Contact Field */}
       <div className="space-y-2">

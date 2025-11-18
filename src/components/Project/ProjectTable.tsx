@@ -69,14 +69,13 @@ const ProjectTable = ({ projectFinancials, setAddProjectOpen, setEditingProject,
     setCurrentPage(1);
   };
 
-  // Export to CSV (Updated with new columns)
+  // Export to CSV (PROFIT REMOVED)
   const exportToCSV = () => {
     const exportData = filteredProjects.map((project) => ({
       "Project Name": project.name || "N/A",
       "Client": project.hr_clients?.display_name || "N/A",
       "Start Date": project.start_date ? new Date(project.start_date).toLocaleDateString() : 'N/A',
       "Revenue (INR)": project.revenue_inr.toLocaleString(),
-      "Profit (INR)": project.profit_inr.toLocaleString(),
       "Status": project.status,
       "Created By": project.created_by_name,
     }));
@@ -86,18 +85,17 @@ const ProjectTable = ({ projectFinancials, setAddProjectOpen, setEditingProject,
     XLSX.writeFile(wb, "projects_data.xlsx");
   };
 
-  // Export to PDF (Updated with new columns)
+  // Export to PDF (PROFIT REMOVED)
   const exportToPDF = () => {
     const doc = new jsPDF();
     doc.text("Project Data", 14, 10);
     (doc as any).autoTable({
-      head: [["Project Name", "Client", "Start Date", "Revenue (INR)", "Profit (INR)", "Status", "Created By"]],
+      head: [["Project Name", "Client", "Start Date", "Revenue (INR)", "Status", "Created By"]],
       body: filteredProjects.map((project) => [
         project.name || "N/A",
         project.hr_clients?.display_name || "N/A",
         project.start_date ? new Date(project.start_date).toLocaleDateString() : 'N/A',
         project.revenue_inr.toLocaleString(),
-        project.profit_inr.toLocaleString(),
         project.status,
         project.created_by_name,
       ]),
@@ -179,7 +177,6 @@ const ProjectTable = ({ projectFinancials, setAddProjectOpen, setEditingProject,
                 <th scope="col" className="px-4 py-3 text-left text-sm font-medium text-gray-500">Project Name / Client</th>
                 <th scope="col" className="px-4 py-3 text-left text-sm font-medium text-gray-500">Start Date</th>
                 <th scope="col" className="px-4 py-3 text-left text-sm font-medium text-gray-500">Revenue</th>
-                <th scope="col" className="px-4 py-3 text-left text-sm font-medium text-gray-500">Profit</th>
                 <th scope="col" className="px-4 py-3 text-left text-sm font-medium text-gray-500">Status</th>
                 <th scope="col" className="px-4 py-3 text-left text-sm font-medium text-gray-500">Created By</th>
                 <th scope="col" className="px-4 py-3 text-left text-sm font-medium text-gray-500">Actions</th>
@@ -203,10 +200,6 @@ const ProjectTable = ({ projectFinancials, setAddProjectOpen, setEditingProject,
                   <td className="px-4 py-2">
                     ₹ {project.revenue_inr.toLocaleString()}<br />
                     <span className="text-xs text-gray-500">$ {project.revenue_usd.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-                  </td>
-                  <td className="px-4 py-2">
-                    ₹ {project.profit_inr.toLocaleString()}<br />
-                    <span className="text-xs text-gray-500">$ {project.profit_usd.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                   </td>
                   <td className="px-4 py-2">
                     <Select defaultValue={project.status} onValueChange={(newStatus) => updateStatusMutation.mutate({ projectId: project.id, newStatus })}>
@@ -251,30 +244,117 @@ const ProjectTable = ({ projectFinancials, setAddProjectOpen, setEditingProject,
     );
   };
 
-  const renderPagination = () => { /* ... no changes needed ... */ };
+  // FULL IMPLEMENTATION of renderPagination
+  const renderPagination = () => {
+    return (
+      <div className="flex items-center justify-between mt-4">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-gray-600">Rows per page:</span>
+          <Select value={String(itemsPerPage)} onValueChange={handleItemsPerPageChange}>
+            <SelectTrigger className="w-[70px] h-9">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="5">5</SelectItem>
+              <SelectItem value="10">10</SelectItem>
+              <SelectItem value="20">20</SelectItem>
+              <SelectItem value="50">50</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex items-center gap-4">
+          <span className="text-sm font-medium text-gray-600">
+            Page {currentPage} of {totalPages}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(currentPage - 1)}
+              disabled={currentPage === 1}
+              className="h-9 w-9 p-0"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(currentPage + 1)}
+              disabled={currentPage === totalPages}
+              className="h-9 w-9 p-0"
+            >
+              <ChevronRight className="h-5 w-5" />
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-        <Tabs defaultValue="all" value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid grid-cols-4 w-full sm:w-[420px]">
-            <TabsTrigger value="all">All</TabsTrigger>
-            <TabsTrigger value="ongoing" className="flex items-center gap-1"><Briefcase size={14} /><span>Ongoing</span></TabsTrigger>
-            <TabsTrigger value="completed" className="flex items-center gap-1"><CheckCircle size={14} /><span>Completed</span></TabsTrigger>
-            <TabsTrigger value="cancelled" className="flex items-center gap-1"><XCircle size={14} /><span>Cancelled</span></TabsTrigger>
-          </TabsList>
-        </Tabs>
-        <div className="relative flex-grow">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
-          <Input placeholder="Search project or client..." className="pl-10 h-10" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={exportToCSV}><Download className="w-4 h-4 mr-2" />Export CSV</Button>
-          <Button variant="outline" size="sm" onClick={exportToPDF}><Download className="w-4 h-4 mr-2" />Export PDF</Button>
-        </div>
-      </div>
+     <div className="flex flex-wrap items-center justify-start gap-3 md:gap-4 w-full mb-6">
+  <div className="flex-shrink-0 order-1">
+    <Tabs defaultValue="all" value={activeTab} onValueChange={setActiveTab}>
+      <TabsList className="inline-flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800 p-1 shadow-inner space-x-0.5">
+        <TabsTrigger
+          value="all"
+          className="px-4 py-1.5 rounded-full text-sm font-medium text-gray-600 dark:text-gray-300 
+            data-[state=active]:bg-violet-600 data-[state=active]:text-white data-[state=active]:shadow-md transition-all"
+        >
+          All
+        </TabsTrigger>
+        <TabsTrigger
+          value="ongoing"
+          className="px-4 py-1.5 rounded-full text-sm font-medium text-gray-600 dark:text-gray-300 
+            data-[state=active]:bg-violet-600 data-[state=active]:text-white data-[state=active]:shadow-md transition-all flex items-center gap-1"
+        >
+          <Briefcase size={14} />
+          <span>Ongoing</span>
+        </TabsTrigger>
+        <TabsTrigger
+          value="completed"
+          className="px-4 py-1.5 rounded-full text-sm font-medium text-gray-600 dark:text-gray-300 
+            data-[state=active]:bg-violet-600 data-[state=active]:text-white data-[state=active]:shadow-md transition-all flex items-center gap-1"
+        >
+          <CheckCircle size={14} />
+          <span>Completed</span>
+        </TabsTrigger>
+        <TabsTrigger
+          value="cancelled"
+          className="px-4 py-1.5 rounded-full text-sm font-medium text-gray-600 dark:text-gray-300 
+            data-[state=active]:bg-violet-600 data-[state=active]:text-white data-[state=active]:shadow-md transition-all flex items-center gap-1"
+        >
+          <XCircle size={14} />
+          <span>Cancelled</span>
+        </TabsTrigger>
+      </TabsList>
+    </Tabs>
+  </div>
+  <div className="relative flex-grow order-2 min-w-[200px] sm:min-w-[260px] md:min-w-[280px] lg:min-w-[320px]">
+    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+    <Input 
+      placeholder="Search project or client..." 
+      className="pl-10 h-10 w-full rounded-full bg-gray-100 dark:bg-gray-800 shadow-inner text-sm md:text-base placeholder:text-xs md:placeholder:text-sm" 
+      value={searchTerm} 
+      onChange={(e) => setSearchTerm(e.target.value)} 
+    />
+  </div>
+  <div className="flex gap-2 flex-shrink-0 order-3">
+    <Button variant="outline" size="sm" onClick={exportToCSV} className="rounded-full h-10 text-gray-600 bg-gray-100 dark:bg-gray-800 shadow-inner text-sm">
+      <Download className="w-4 h-4 mr-2" />
+      Export CSV
+    </Button>
+    <Button variant="outline" size="sm" onClick={exportToPDF} className="rounded-full h-10 text-gray-600 bg-gray-100 dark:bg-gray-800 shadow-inner text-sm">
+      <Download className="w-4 h-4 mr-2" />
+      Export PDF
+    </Button>
+  </div>
+</div>
 
       {renderTable(paginatedProjects)}
+
+      {/* Conditionally render pagination only if there are projects to display */}
       {filteredProjects.length > 0 && renderPagination()}
     </div>
   );
